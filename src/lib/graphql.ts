@@ -50,7 +50,8 @@ export async function waitActionFlowResult(
     )
     const r = data.fz_action_flow_result
     if (r?.status === 'COMPLETED') return r.output ?? {}
-    if (r && r.status !== 'RUNNING' && r.status !== 'PENDING') {
+    // 终止态判断：只有明确的失败/取消才算失败；RUNNING/PENDING/PROCESSING 等一律继续轮询
+    if (r && /fail|error|cancel/i.test(r.status)) {
       throw new Error(`任务执行失败（${r.status}），请重试`)
     }
     if (Date.now() > deadline) throw new Error('生成超时，请稍后重试')
