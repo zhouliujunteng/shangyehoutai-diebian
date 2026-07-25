@@ -11,6 +11,7 @@ import {
   plusDaysISO,
 } from '@/lib/labels'
 import { projectDisplayName, type Analysis, type CollectLink, type Project, type Question, type Submission } from '@/lib/types'
+import { markProjectViewed } from '@/lib/projectMeta'
 import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, QuestionStatusBadge } from '@/components/StatusBadge'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
@@ -70,6 +71,8 @@ export default function ProjectDetail() {
         { id },
       )
       setProject(data.project_by_pk)
+      // 进入详情即视为已读，清除列表页的更新红点
+      if (data.project_by_pk) markProjectViewed(data.project_by_pk.id)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
