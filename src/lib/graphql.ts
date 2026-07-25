@@ -5,6 +5,20 @@ const ENDPOINT: string =
 /** 「项目梳理」ActionFlow ID（Zion 后端，异步执行：汇总信息 → AI 梳理 → 写回报告） */
 export const ANALYZE_FLOW_ID = '7d097c45-ae63-4597-8444-e5598ab7fbd5'
 
+/** 「后台账号管理」ActionFlow ID（同步执行：为审核员账号绑定服务端角色；仅超管/一级审核员可调用） */
+export const ACCOUNT_ADMIN_FLOW_ID = 'ef7f3f19-7ad1-446a-a579-53d8b2121a8f'
+
+/** 同步调用行为流（按最新版本），失败抛错 */
+export async function invokeActionFlow(flowId: string, args: Record<string, unknown>): Promise<unknown> {
+  const data = await gql<{ fz_invoke_action_flow_default_by_latest_version: unknown }>(
+    `mutation($fid: String!, $args: Json!) {
+      fz_invoke_action_flow_default_by_latest_version(actionFlowId: $fid, args: $args)
+    }`,
+    { fid: flowId, args },
+  )
+  return data.fz_invoke_action_flow_default_by_latest_version
+}
+
 const AUTH_KEY = 'xa_auth'
 
 export function getStoredToken(): string | null {

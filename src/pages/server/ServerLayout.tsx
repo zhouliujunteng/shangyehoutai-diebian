@@ -10,13 +10,15 @@ export default function ServerLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const isSuper = auth?.account.account_type === 'super_admin'
+  // 一级审核员与超管一样：可查看项目总览并进行审核分配（开发文档 §2.1/§2.3）
+  const isL1Reviewer = auth?.account.account_type === 'reviewer' && auth?.account.reviewer_level === 1
 
   const menus = [
-    { path: '/server', label: '项目总览', icon: LayoutDashboard, exact: true, superOnly: true },
-    { path: '/server/review', label: '审核工作台', icon: ClipboardCheck, superOnly: false },
-    { path: '/server/replies', label: '回复处理', icon: MessageSquareReply, superOnly: false },
-    { path: '/server/accounts', label: '账号管理', icon: Users, superOnly: true },
-  ].filter((m) => !m.superOnly || isSuper)
+    { path: '/server', label: '项目总览', icon: LayoutDashboard, exact: true, show: isSuper || isL1Reviewer },
+    { path: '/server/review', label: '审核工作台', icon: ClipboardCheck, show: true },
+    { path: '/server/replies', label: '回复处理', icon: MessageSquareReply, show: true },
+    { path: '/server/accounts', label: '账号管理', icon: Users, show: isSuper },
+  ].filter((m) => m.show)
 
   const isActive = (path: string, exact?: boolean) =>
     exact ? location.pathname === path : location.pathname.startsWith(path)

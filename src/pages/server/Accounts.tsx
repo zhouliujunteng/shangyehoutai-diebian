@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { gql } from '@/lib/graphql'
+import { gql, invokeActionFlow, ACCOUNT_ADMIN_FLOW_ID } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { ACCOUNT_TYPE_LABEL } from '@/lib/labels'
 import type { Account } from '@/lib/types'
@@ -92,7 +92,7 @@ export default function Accounts() {
           }
         }`,
       )
-      setList(data.account)
+      setList(data.account.filter((a) => a.username))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -139,7 +139,11 @@ export default function Accounts() {
           },
         },
       )
-      toast.success(`账号 ${username.trim()} 创建成功`)
+      // 3. 审核员账号：通过行为流绑定「服务端」角色（否则登录后无审核相关数据权限）
+      if (type === 'reviewer') {
+        await invokeActionFlow(ACCOUNT_ADMIN_FLOW_ID, { accountId: Number(newId) })
+      }
+      toast.success(`账号 ${username.trim()} 创建成功${type === 'reviewer' ? '，服务端角色已绑定' : ''}`)
       setDialogOpen(false)
       setUsername('')
       setPassword('')
@@ -151,6 +155,26 @@ export default function Accounts() {
       toast.error(err instanceof Error ? err.message : '创建失败')
     } finally {
       setCreating(false)
+    }
+  }
+
+  // 修改审核员等级（仅超管）
+  const changeLevel = async (a: AccountRow, lv: string) => {
+    if (Number(lv) === (a.reviewer_level ?? 0)) return
+    setActing(`lv-${a.id}`)
+    try {
+      await gql(
+        `mutation($id: bigint!, $lv: bigint!) {
+          update_account_by_pk(pk_columns: { id: $id }, _set: { reviewer_level: $lv }) { id }
+        }`,
+        { id: a.id, lv: Number(lv) },
+      )
+      toast.success(`已将 ${a.username} 的审核级别调整为 ${lv} 级`)
+      load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setActing(null)
     }
   }
 
@@ -233,7 +257,33 @@ export default function Accounts() {
                           {isSelf && <span className="ml-1.5 text-xs text-slate-400">（我）</span>}
                         </TableCell>
                         <TableCell>{ACCOUNT_TYPE_LABEL[a.account_type] ?? a.account_type}</TableCell>
-                        <TableCell>{a.reviewer_level ? `${a.reviewer_level} 级` : '—'}</TableCell>
+                        <TableCell>
+                          {a.account_type !== 'reviewer' ? (
+                            '—'
+                          ) : isSuperAdmin && !isSelf ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Select
+                                value={String(a.reviewer_level ?? 3)}
+                                onValueChange={(v) => changeLevel(a, v)}
+                                disabled={acting === `lv-${a.id}`}
+                              >
+                                <SelectTrigger className="h-8 w-24">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="3">3 级（初审）</SelectItem>
+                                  <SelectItem value="2">2 级（复审）</SelectItem>
+                                  <SelectItem value="1">1 级（终审）</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {acting === `lv-${a.id}` && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+                            </span>
+                          ) : a.reviewer_level ? (
+                            `${a.reviewer_level} 级`
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
                         <TableCell>
                           {a.account_type !== 'client' ? (
                             '—'
