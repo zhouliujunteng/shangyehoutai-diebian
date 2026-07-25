@@ -11,7 +11,7 @@ import {
   plusDaysISO,
 } from '@/lib/labels'
 import { projectDisplayName, type Analysis, type CollectLink, type Project, type Question, type Submission } from '@/lib/types'
-import { markProjectViewed } from '@/lib/projectMeta'
+import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
 import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, QuestionStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
@@ -116,17 +116,20 @@ export default function ProjectDetail() {
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
         <h1 className="text-xl font-bold text-slate-900">{projectDisplayName(project)}</h1>
-        <ProjectStatusBadge status={project.status} />
+        <ProjectStatusBadge status={clientDisplayStatus(project)} />
       </div>
 
       <div className="no-print">
-        <CollectLinkCard
-          link={link}
-          project={project}
-          actionLoading={actionLoading}
-          setActionLoading={setActionLoading}
-          onChanged={refresh}
-        />
+        {/* 梳理报告发布后：收集链接已完成使命，整个区域不再展示 */}
+        {!publishedAnalysis && (
+          <CollectLinkCard
+            link={link}
+            project={project}
+            actionLoading={actionLoading}
+            setActionLoading={setActionLoading}
+            onChanged={refresh}
+          />
+        )}
       </div>
 
       <div className="no-print">
@@ -199,9 +202,19 @@ function CollectLinkCard({
   const countdown = expired ? '已过期' : days > 0 ? `剩余 ${days} 天 ${hours} 小时` : `剩余 ${hours} 小时`
 
   const copy = async () => {
+    // 复制时附带邀请话术，方便客户直接转发给填写人；备注为内部信息，不带入话术
+    const entName = project.name.trim()
+    const inviteText = [
+      '【企业信息收集邀请】',
+      entName
+        ? `你好，${entName} 的服务团队邀请你填写企业信息收集表。`
+        : '你好，服务团队邀请你填写企业信息收集表。',
+      '提交后，我们将基于填写内容为你的企业出具专属的梳理方案。',
+      `填写链接（3 天内有效，仅可提交一次）：${fullUrl}`,
+    ].join('\n')
     try {
-      await navigator.clipboard.writeText(fullUrl)
-      toast.success('链接已复制')
+      await navigator.clipboard.writeText(inviteText)
+      toast.success('邀请话术和链接已复制，可直接转发给填写人')
     } catch {
       toast.info(fullUrl)
     }

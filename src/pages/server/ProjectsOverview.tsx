@@ -44,6 +44,10 @@ export default function ProjectsOverview() {
   const [search, setSearch] = useState('')
   const [manageTarget, setManageTarget] = useState<ProjectRow | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
+  // 用户名 → 展示名（昵称优先），用于所属客户与审核人展示
+  const [nickMap, setNickMap] = useState<Record<string, string>>({})
+
+  const displayOf = (username?: string | null) => (username ? (nickMap[username] ?? username) : '—')
 
   // 已读标记按账号隔离，避免同浏览器不同账号互相清除红点
   const viewedScope = `server:${auth?.account.username ?? ''}`
@@ -77,7 +81,7 @@ export default function ProjectsOverview() {
     try {
       const args =
         statusFilter === 'all' ? '' : `where: { status: { _eq: "${statusFilter}" }, `
-      const data = await gql<{ project: ProjectRow[] }>(
+      const data = await gql<{ project: ProjectRow[]; account: { username: string; nickname: string | null }[] }>(
         `query {
           project(${args}order_by: { id: desc }) {
             id name status review_level created_at
@@ -87,9 +91,13 @@ export default function ProjectsOverview() {
             analyses(order_by: { id: desc }, limit: 1) { id status created_at }
             questions(order_by: { id: desc }, limit: 1) { id status created_at }
           }
+          account { username nickname }
         }`,
       )
       setProjects(data.project)
+      const map: Record<string, string> = {}
+      for (const a of data.account) map[a.username] = a.nickname?.trim() || a.username
+      setNickMap(map)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -118,7 +126,7 @@ export default function ProjectsOverview() {
       <div className="flex flex-wrap gap-1">
         {p.review_assignments.map((a) => (
           <Badge key={a.id} variant="outline" className="bg-slate-50">
-            L{a.level} {a.reviewer}
+            L{a.level} {displayOf(a.reviewer)}
           </Badge>
         ))}
       </div>
@@ -198,7 +206,7 @@ export default function ProjectsOverview() {
                   <CardTitle className="text-base leading-6">{p.name || '未命名项目'}</CardTitle>
                   <ProjectStatusBadge status={p.status} />
                 </div>
-                <p className="text-xs text-slate-400">客户：{p.owner?.username ?? '—'}</p>
+                <p className="text-xs text-slate-400">客户：{displayOf(p.owner?.username)}</p>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
@@ -247,7 +255,7 @@ export default function ProjectsOverview() {
                         {p.name || '未命名项目'}
                         {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
                       </TableCell>
-                      <TableCell>{p.owner?.username ?? '—'}</TableCell>
+                      <TableCell>{displayOf(p.owner?.username)}</TableCell>
                       <TableCell>
                         <ProjectStatusBadge status={p.status} />
                       </TableCell>
@@ -301,20 +309,24 @@ function ReviewSettingDialog({
   onChanged: () => void
 }) {
   const [level, setLevel] = useState(String(project.review_level ?? 3))
-  const [assignments, setAssignments] = useState<ReviewAssignment[]>(project.review_assignments)
+  const [assignments, setAssignments] = useState<ReviewAssignment[]>(() => {
+    // 展示层兜底去重：同一级别只保留一条（历史可能存在重复指派数据）
+    const seen = new Set<number>()
+    return project.review_assignments.filter((a) => !seen.has(a.level) && seen.add(a.level))
+  })
   const [newLevel, setNewLevel] = useState('3')
   const [newReviewer, setNewReviewer] = useState('')
   const [saving, setSaving] = useState(false)
-  const [reviewers, setReviewers] = useState<{ username: string; reviewer_level: number | null }[]>([])
+  const [reviewers, setReviewers] = useState<{ username: string; nickname: string | null; reviewer_level: number | null }[]>([])
 
   // 加载可指派的审核员（按级别筛选）
   useEffect(() => {
     ;(async () => {
       try {
-        const data = await gql<{ account: { username: string; reviewer_level: number | null }[] }>(
+        const data = await gql<{ account: { username: string; nickname: string | null; reviewer_level: number | null }[] }>(
           `query {
             account(where: { account_type: { _eq: "reviewer" }, status: { _eq: "active" } }, order_by: { username: asc }) {
-              username reviewer_level
+              username nickname reviewer_level
             }
           }`,
         )
@@ -326,6 +338,8 @@ function ReviewSettingDialog({
   }, [])
 
   const candidateReviewers = reviewers.filter((r) => r.reviewer_level === Number(newLevel))
+  const reviewerDisplay = (username: string) =>
+    reviewers.find((r) => r.username === username)?.nickname?.trim() || username
 
   const saveLevel = async (e: FormEvent) => {
     e.preventDefault()
@@ -369,8 +383,9 @@ function ReviewSettingDialog({
       toast.error('请选择审核人')
       return
     }
+    setSaving(true)
     try {
-      // 同一级别只保留一个审核人：先移除该级别原有指派
+      // 同一级别只保留一个审核人：先移除该级别原有指派（含历史重复数据）
       const existing = assignments.filter((a) => a.level === Number(newLevel))
       for (const a of existing) {
         await gql(`mutation($id: bigint!) { delete_review_assignment_by_pk(id: $id) { id } }`, { id: a.id })
@@ -397,6 +412,8 @@ function ReviewSettingDialog({
       toast.success('已指派')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '指派失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -450,7 +467,7 @@ function ReviewSettingDialog({
                 <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                   {a.level} 级
                 </Badge>
-                <span className="text-sm">{a.reviewer}</span>
+                <span className="text-sm">{reviewerDisplay(a.reviewer)}</span>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -490,15 +507,15 @@ function ReviewSettingDialog({
                   ) : (
                     candidateReviewers.map((r) => (
                       <SelectItem key={r.username} value={r.username}>
-                        {r.username}
+                        {r.nickname?.trim() || r.username}
                       </SelectItem>
                     ))
                   )}
                 </SelectContent>
               </Select>
             </div>
-            <Button variant="outline" onClick={addAssignment}>
-              <Plus className="mr-1 h-4 w-4" /> 指派
+            <Button variant="outline" onClick={addAssignment} disabled={saving}>
+              {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />} 指派
             </Button>
           </div>
         </div>

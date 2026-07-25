@@ -1,7 +1,8 @@
 import { Outlet, useNavigate } from 'react-router'
 import { useAuth } from '@/lib/auth'
+import { accountDisplayName } from '@/lib/types'
 import { Button } from '@/components/ui/button'
-import { Building2, LogOut } from 'lucide-react'
+import { Building2, LogOut, Settings } from 'lucide-react'
 
 export default function ClientLayout() {
   const { auth, logout } = useAuth()
@@ -16,7 +17,22 @@ export default function ClientLayout() {
             项目后台 · 客户中心
           </button>
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-sm text-slate-300">{auth?.account.username}</span>
+            <button
+              className="text-sm text-slate-300 transition-colors hover:text-white"
+              title="账号设置"
+              onClick={() => navigate('/client/settings')}
+            >
+              {accountDisplayName(auth?.account)}
+            </button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-slate-300 hover:bg-slate-800 hover:text-white"
+              onClick={() => navigate('/client/settings')}
+              title="账号设置"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
             <Button
               size="sm"
               variant="ghost"

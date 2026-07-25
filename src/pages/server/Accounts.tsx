@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Loader2, UserPlus, Ban, CircleCheck, Pencil, Search } from 'lucide-react'
+import { Loader2, UserPlus, Ban, CircleCheck, Pencil, Search, KeyRound, ClipboardCopy } from 'lucide-react'
 
 interface AccountRow extends Account {
   created_at?: string
@@ -175,6 +175,38 @@ export default function Accounts() {
       toast.error(err instanceof Error ? err.message : '保存失败')
     } finally {
       setActing(null)
+    }
+  }
+
+  // 生成 14 位强密码（大小写+数字+符号，排除易混淆字符）
+  const genStrongPassword = () => {
+    const pick = (s: string, n: number) =>
+      Array.from(crypto.getRandomValues(new Uint32Array(n)))
+        .map((v) => s[v % s.length])
+        .join('')
+    const pwd =
+      pick('ABCDEFGHJKLMNPQRSTUVWXYZ', 2) +
+      pick('abcdefghjkmnpqrstuvwxyz', 4) +
+      pick('23456789', 3) +
+      pick('!@#$%&*?', 2) +
+      pick('ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789', 3)
+    const arr = pwd.split('')
+    const rnd = crypto.getRandomValues(new Uint32Array(arr.length))
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = rnd[i] % (i + 1)
+      ;[arr[i], arr[j]] = [arr[j], arr[i]]
+    }
+    setPassword(arr.join(''))
+  }
+
+  // 一键复制账号+密码，直接发给对方
+  const copyAccountInfo = async () => {
+    const text = `账号：${username.trim()}\n初始密码：${password}\n登录后请先在「账号设置」中绑定手机号并修改密码。`
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('账号和密码已复制，可直接发送给对方')
+    } catch {
+      toast.error('复制失败')
     }
   }
 
@@ -387,6 +419,21 @@ export default function Accounts() {
             <div className="space-y-2">
               <Label>初始密码</Label>
               <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="建议设置强密码并告知用户修改" />
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={genStrongPassword}>
+                  <KeyRound className="mr-1 h-3.5 w-3.5" /> 生成强密码
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!username.trim() || !password}
+                  onClick={copyAccountInfo}
+                  title="复制「账号+密码」，直接粘贴发送给对方"
+                >
+                  <ClipboardCopy className="mr-1 h-3.5 w-3.5" /> 复制账号密码
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>账号类型</Label>

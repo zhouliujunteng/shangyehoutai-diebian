@@ -3,7 +3,8 @@ import { useAuth } from '@/lib/auth'
 import { ACCOUNT_TYPE_LABEL } from '@/lib/labels'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Building2, LogOut, LayoutDashboard, ClipboardCheck, MessageSquareReply, Users } from 'lucide-react'
+import { Building2, LogOut, LayoutDashboard, ClipboardCheck, MessageSquareReply, Users, Settings } from 'lucide-react'
+import { accountDisplayName } from '@/lib/types'
 
 export default function ServerLayout() {
   const { auth, logout } = useAuth()
@@ -30,13 +31,28 @@ export default function ServerLayout() {
           <Building2 className="h-5 w-5 shrink-0" />
           <span className="font-semibold whitespace-nowrap">项目后台 · 服务端</span>
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-sm text-slate-300 sm:inline">{auth?.account.username}</span>
+            <button
+              className="hidden text-sm text-slate-300 transition-colors hover:text-white sm:inline"
+              title="账号设置"
+              onClick={() => navigate('/server/settings')}
+            >
+              {accountDisplayName(auth?.account)}
+            </button>
             <Badge variant="outline" className="border-slate-600 text-slate-300">
               {ACCOUNT_TYPE_LABEL[auth?.account.account_type ?? ''] ?? ''}
               {auth?.account.account_type === 'reviewer' && auth.account.reviewer_level
                 ? ` ${auth.account.reviewer_level} 级`
                 : ''}
             </Badge>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-slate-300 hover:bg-slate-800 hover:text-white"
+              onClick={() => navigate('/server/settings')}
+              title="账号设置"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
             <Button
               size="sm"
               variant="ghost"

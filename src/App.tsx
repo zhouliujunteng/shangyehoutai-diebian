@@ -13,6 +13,7 @@ import ReviewDetail from '@/pages/server/ReviewDetail'
 import RepliesList from '@/pages/server/RepliesList'
 import ProjectReplies from '@/pages/server/ProjectReplies'
 import Accounts from '@/pages/server/Accounts'
+import AccountSettings from '@/pages/Settings'
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
         >
           <Route index element={<ClientDashboard />} />
           <Route path="project/:id" element={<ProjectDetail />} />
+          <Route path="settings" element={<AccountSettings />} />
         </Route>
         <Route
           path="/server"
@@ -46,6 +48,7 @@ export default function App() {
           <Route path="replies" element={<RepliesList />} />
           <Route path="replies/:projectId" element={<ProjectReplies />} />
           <Route path="accounts" element={<Accounts />} />
+          <Route path="settings" element={<AccountSettings />} />
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

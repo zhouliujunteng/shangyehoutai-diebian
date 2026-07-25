@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 import { gql } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { formatTime } from '@/lib/labels'
-import { isUnseen, groupIndex, REVIEW_STATUS_GROUP_ORDER } from '@/lib/projectMeta'
+import { isUnseen } from '@/lib/projectMeta'
 import type { Question } from '@/lib/types'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
 import UpdateDot from '@/components/UpdateDot'
@@ -36,16 +36,10 @@ export default function RepliesList() {
 
   const kw = search.trim().toLowerCase()
   const viewedScope = `server:${auth?.account.username ?? ''}`
-  // 默认排序：先按回复状态分类分组（未起草排最前），组内按最新时间倒序
+  // 默认排序：最新更新的项目排在最上面
   const visibleGroups = groups
     .filter((g) => !kw || g.name.toLowerCase().includes(kw))
-    .sort((a, b) => {
-      const g =
-        groupIndex(REVIEW_STATUS_GROUP_ORDER, a.latestReplyStatus ?? 'none') -
-        groupIndex(REVIEW_STATUS_GROUP_ORDER, b.latestReplyStatus ?? 'none')
-      if (g !== 0) return g
-      return new Date(b.latestTime ?? 0).getTime() - new Date(a.latestTime ?? 0).getTime()
-    })
+    .sort((a, b) => new Date(b.latestTime ?? 0).getTime() - new Date(a.latestTime ?? 0).getTime())
 
   useEffect(() => {
     ;(async () => {

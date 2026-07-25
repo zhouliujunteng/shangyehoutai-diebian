@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(AUTH_KEY, JSON.stringify({ token, account: { id: payload.account.id } }))
     const detail = await gql<{ account_by_pk: Account | null }>(
       `query($id: bigint!) {
-        account_by_pk(id: $id) { id username account_type reviewer_level project_quota status }
+        account_by_pk(id: $id) { id username nickname fz_phone_number account_type reviewer_level project_quota status }
       }`,
       { id: payload.account.id },
     )
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!stored) return
     const detail = await gql<{ account_by_pk: Account | null }>(
       `query($id: bigint!) {
-        account_by_pk(id: $id) { id username account_type reviewer_level project_quota status }
+        account_by_pk(id: $id) { id username nickname fz_phone_number account_type reviewer_level project_quota status }
       }`,
       { id: stored.account.id },
     )

@@ -4,10 +4,19 @@ export type AccountStatus = 'active' | 'disabled'
 export interface Account {
   id: number | string
   username: string
+  /** 用户自定义昵称（未设置时各处展示用户名） */
+  nickname?: string | null
+  /** 绑定的手机号（改密码的前置条件） */
+  fz_phone_number?: string | null
   account_type: AccountType
   reviewer_level: number | null
   project_quota: number
   status: AccountStatus
+}
+
+/** 账号展示名：优先昵称，未设置回退用户名 */
+export function accountDisplayName(a?: { username: string; nickname?: string | null } | null): string {
+  return a?.nickname?.trim() || a?.username || ''
 }
 
 export type ProjectStatus =
