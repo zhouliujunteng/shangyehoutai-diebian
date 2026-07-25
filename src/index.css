@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.625rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+/* 打印视图：body.printing 时只显示 .print-only 区域（用于梳理报告导出 PDF） */
+.print-only {
+  display: none;
+}
+@media print {
+  body.printing .no-print {
+    display: none !important;
+  }
+  body.printing .print-only {
+    display: block !important;
+  }
+}
+
+/* Markdown 渲染基础排版 */
+.markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin: 1.2em 0 0.6em; color: #0f172a; }
+.markdown-body h2 { font-size: 1.25rem; font-weight: 700; margin: 1.1em 0 0.5em; color: #1e293b; }
+.markdown-body h3 { font-size: 1.1rem; font-weight: 600; margin: 1em 0 0.4em; color: #334155; }
+.markdown-body p { margin: 0.5em 0; line-height: 1.8; color: #334155; }
+.markdown-body ul, .markdown-body ol { margin: 0.5em 0; padding-left: 1.5em; line-height: 1.8; color: #334155; }
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body strong { color: #0f172a; }
+.markdown-body blockquote { border-left: 3px solid #cbd5e1; padding-left: 1em; color: #64748b; margin: 0.8em 0; }
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 0.9rem; }
+.markdown-body th, .markdown-body td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
+.markdown-body th { background: #f8fafc; }
+.markdown-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.2em 0; }

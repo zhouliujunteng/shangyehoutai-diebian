@@ -1,0 +1,138 @@
+export type AccountType = 'super_admin' | 'client' | 'reviewer'
+export type AccountStatus = 'active' | 'disabled'
+
+export interface Account {
+  id: number | string
+  username: string
+  account_type: AccountType
+  reviewer_level: number | null
+  project_quota: number
+  status: AccountStatus
+}
+
+export type ProjectStatus =
+  | 'created'
+  | 'collecting'
+  | 'pending_confirm'
+  | 'supplementing'
+  | 'submitted'
+  | 'analyzing'
+  | 'in_review'
+  | 'published'
+
+export interface Project {
+  id: number
+  /** 项目名称：创建时为空，由填写人提交收集表后自动回填（企业名称/公司全称） */
+  name: string
+  /** 客户对项目/收集链接的备注（仅内部可见） */
+  remark?: string | null
+  status: ProjectStatus
+  review_level: number | null
+  owner_id?: number | string
+  created_at?: string
+  owner?: { username: string } | null
+}
+
+/** 项目显示名：优先企业名称，其次备注，兜底未命名 */
+export function projectDisplayName(p: { name?: string | null; remark?: string | null }): string {
+  return p.name?.trim() || p.remark?.trim() || '未命名项目'
+}
+
+export type CollectLinkStatus = 'active' | 'submitted' | 'supplementing' | 'expired'
+
+export interface CollectLink {
+  id: number
+  token: string
+  status: CollectLinkStatus
+  expires_at: string
+  project_id: number
+  created_at?: string
+}
+
+export type FormType = 'basic' | 'detailed'
+
+export interface Submission {
+  id: number
+  form_type: FormType
+  filler_name: string | null
+  filler_contact: string | null
+  answers: Record<string, string> | null
+  is_supplement: boolean
+  project_id: number
+  created_at?: string
+}
+
+export type ReviewStatus = 'pending_setup' | 'pending_l3' | 'pending_l2' | 'pending_l1' | 'published' | 'superseded'
+
+export interface Analysis {
+  id: number
+  version: number
+  content: string
+  /** 思想来源（仅审核人员可见，客户端无此列权限） */
+  internal_ref?: string | null
+  status: ReviewStatus
+  current_stage: number
+  project_id: number
+  created_at?: string
+  project?: { id: number; name: string } | null
+}
+
+export interface ReviewAssignment {
+  id: number
+  level: number
+  reviewer: string
+  project_id: number
+}
+
+export interface ReviewRecord {
+  id: number
+  target_type: 'analysis' | 'reply'
+  target_id: string
+  level: number
+  reviewer: string
+  decision: 'approved' | 'reanalyze' | 'returned'
+  comment: string | null
+  project_id: number
+  created_at?: string
+}
+
+export type QuestionStatus = 'pending' | 'in_review' | 'replied'
+
+export interface AttachmentPayload {
+  name: string
+  mime: string
+  size: number
+  data: string
+}
+
+export interface Question {
+  id: number
+  content: string
+  status: QuestionStatus
+  project_id: number
+  attachments?: AttachmentPayload[] | null
+  created_at?: string
+  project?: { id: number; name: string } | null
+  replies?: Reply[]
+}
+
+export interface Reply {
+  id: number
+  content: string
+  status: ReviewStatus | 'published'
+  current_stage: number
+  question_id: number
+  attachments?: AttachmentPayload[] | null
+  created_at?: string
+}
+
+export interface OperationLog {
+  id: number
+  target_type: string | null
+  target_id: string | null
+  operator: string
+  action: string
+  detail: Record<string, unknown> | null
+  project_id: number
+  created_at?: string
+}
