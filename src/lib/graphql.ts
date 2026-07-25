@@ -8,6 +8,9 @@ export const ANALYZE_FLOW_ID = '7d097c45-ae63-4597-8444-e5598ab7fbd5'
 /** 「后台账号管理」ActionFlow ID（同步执行：为审核员账号绑定服务端角色；仅超管/一级审核员可调用） */
 export const ACCOUNT_ADMIN_FLOW_ID = 'ef7f3f19-7ad1-446a-a579-53d8b2121a8f'
 
+/** 「生成回复草稿」ActionFlow ID（异步执行：汇总企业信息+梳理方案+历史问答 → AI 起草回复） */
+export const REPLY_DRAFT_FLOW_ID = '0a83c789-2d67-45ad-809e-e267d7194bde'
+
 /** 同步调用行为流（按最新版本），失败抛错 */
 export async function invokeActionFlow(flowId: string, args: Record<string, unknown>): Promise<unknown> {
   const data = await gql<{ fz_invoke_action_flow_default_by_latest_version: unknown }>(
@@ -17,6 +20,42 @@ export async function invokeActionFlow(flowId: string, args: Record<string, unkn
     { fid: flowId, args },
   )
   return data.fz_invoke_action_flow_default_by_latest_version
+}
+
+/** 创建异步行为流任务，返回任务 ID */
+export async function createActionFlowTask(flowId: string, args: Record<string, unknown>): Promise<number> {
+  const data = await gql<{ fz_create_action_flow_task: number }>(
+    `mutation($fid: String!, $args: Json!) {
+      fz_create_action_flow_task(actionFlowId: $fid, args: $args)
+    }`,
+    { fid: flowId, args },
+  )
+  return data.fz_create_action_flow_task
+}
+
+/** 轮询异步行为流任务直到完成，返回输出对象；失败或超时抛错 */
+export async function waitActionFlowResult(
+  taskId: number,
+  opts: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<Record<string, unknown>> {
+  const interval = opts.intervalMs ?? 2500
+  const timeout = opts.timeoutMs ?? 180000
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const data = await gql<{ fz_action_flow_result: { status: string; output: Record<string, unknown> | null } | null }>(
+      `query($t: Long!) {
+        fz_action_flow_result(taskId: $t) { status output }
+      }`,
+      { t: taskId },
+    )
+    const r = data.fz_action_flow_result
+    if (r?.status === 'COMPLETED') return r.output ?? {}
+    if (r && r.status !== 'RUNNING' && r.status !== 'PENDING') {
+      throw new Error(`任务执行失败（${r.status}），请重试`)
+    }
+    if (Date.now() > deadline) throw new Error('生成超时，请稍后重试')
+    await new Promise((res) => setTimeout(res, interval))
+  }
 }
 
 const AUTH_KEY = 'xa_auth'

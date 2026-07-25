@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
-import { gql, logOperation } from '@/lib/graphql'
+import { gql, logOperation, createActionFlowTask, waitActionFlowResult, REPLY_DRAFT_FLOW_ID } from '@/lib/graphql'
 import { AttachmentPicker, AttachmentView, type AttachmentItem } from '@/lib/attachments'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, initialReviewStage, formatTime } from '@/lib/labels'
@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, Loader2, Save, Send } from 'lucide-react'
+import { ArrowLeft, Check, Loader2, Save, Send, Sparkles } from 'lucide-react'
 
 interface ProjectFull extends Project {
   owner?: { username: string } | null
@@ -34,6 +34,25 @@ export default function ProjectReplies() {
   const [comments, setComments] = useState<Record<number, string>>({})
   const [filesMap, setFilesMap] = useState<Record<number, AttachmentItem[]>>({})
   const [acting, setActing] = useState<string | null>(null)
+  // AI 智能体起草：按提问记录生成中的状态
+  const [aiDrafting, setAiDrafting] = useState<Record<number, boolean>>({})
+
+  // 调用「生成回复草稿」行为流：综合企业基本信息、梳理方案、历史问答与提问附件起草回复
+  const generateDraft = async (q: Question) => {
+    setAiDrafting((p) => ({ ...p, [q.id]: true }))
+    try {
+      const taskId = await createActionFlowTask(REPLY_DRAFT_FLOW_ID, { 提问ID: q.id })
+      const output = await waitActionFlowResult(taskId)
+      const text = typeof output['回复文本'] === 'string' ? (output['回复文本'] as string) : ''
+      if (!text.trim()) throw new Error('智能体未返回内容，请重试')
+      setContents((p) => ({ ...p, [q.id]: text.trim() }))
+      toast.success('AI 草稿已生成，请审核修改后再提交')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'AI 起草失败，请重试')
+    } finally {
+      setAiDrafting((p) => ({ ...p, [q.id]: false }))
+    }
+  }
 
   const myLevel = myReviewLevel(auth?.account)
   const myName = auth?.account.username ?? ''
@@ -319,13 +338,28 @@ export default function ProjectReplies() {
                   </div>
                 ) : !reply ? (
                   <div className="space-y-3">
-                    <Label className="text-sm">起草回复（提交后按 {reviewLevel} 级审核链流转，每级可补充）</Label>
-                    <Textarea
-                      rows={4}
-                      value={contents[q.id] ?? ''}
-                      onChange={(e) => setContents((p) => ({ ...p, [q.id]: e.target.value }))}
-                      placeholder="输入回复内容…"
-                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label className="text-sm">起草回复（提交后按 {reviewLevel} 级审核链流转，每级可补充）</Label>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                        disabled={acting !== null || !!aiDrafting[q.id]}
+                        onClick={() => generateDraft(q)}
+                      >
+                        <Sparkles className="mr-1 h-3.5 w-3.5" /> 智能体起草
+                      </Button>
+                    </div>
+                    {aiDrafting[q.id] ? (
+                      <AiDraftingPanel />
+                    ) : (
+                      <Textarea
+                        rows={4}
+                        value={contents[q.id] ?? ''}
+                        onChange={(e) => setContents((p) => ({ ...p, [q.id]: e.target.value }))}
+                        placeholder="输入回复内容…"
+                      />
+                    )}
                     <AttachmentPicker
                       value={filesMap[q.id] ?? []}
                       onChange={(v) => setFilesMap((p) => ({ ...p, [q.id]: v }))}
@@ -346,15 +380,33 @@ export default function ProjectReplies() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <Label className="text-sm">
-                      回复内容（当前 {reply.current_stage} 级节点{myTurn ? ' · 待我处理，可补充修改' : ' · 非我的节点，只读'}）
-                    </Label>
-                    <Textarea
-                      rows={5}
-                      value={contents[q.id] ?? ''}
-                      onChange={(e) => setContents((p) => ({ ...p, [q.id]: e.target.value }))}
-                      disabled={!myTurn}
-                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label className="text-sm">
+                        回复内容（当前 {reply.current_stage} 级节点{myTurn ? ' · 待我处理，可补充修改' : ' · 非我的节点，只读'}）
+                      </Label>
+                      {myTurn && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                          disabled={acting !== null || !!aiDrafting[q.id]}
+                          onClick={() => generateDraft(q)}
+                          title="用 AI 重新起草，将覆盖当前回复内容"
+                        >
+                          <Sparkles className="mr-1 h-3.5 w-3.5" /> 智能体重写
+                        </Button>
+                      )}
+                    </div>
+                    {aiDrafting[q.id] ? (
+                      <AiDraftingPanel />
+                    ) : (
+                      <Textarea
+                        rows={5}
+                        value={contents[q.id] ?? ''}
+                        onChange={(e) => setContents((p) => ({ ...p, [q.id]: e.target.value }))}
+                        disabled={!myTurn}
+                      />
+                    )}
                     {myTurn ? (
                       <AttachmentPicker
                         value={filesMap[q.id] ?? []}
@@ -402,6 +454,42 @@ export default function ProjectReplies() {
             </Card>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- AI 智能体起草等待动画 ---------------- */
+
+const AI_PHASES = ['正在阅读企业基本信息…', '正在回顾梳理方案…', '正在翻阅历史问答…', '正在起草回复…']
+
+function AiDraftingPanel() {
+  const [phase, setPhase] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setPhase((n) => (n + 1) % AI_PHASES.length), 2800)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 px-5 py-10">
+      <style>{`@keyframes ai-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`}</style>
+      <div
+        className="absolute inset-0 bg-gradient-to-r from-transparent via-violet-100/70 to-transparent"
+        style={{ animation: 'ai-shimmer 2.4s ease-in-out infinite' }}
+      />
+      <div className="relative flex flex-col items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          {[0, 1, 2].map((n) => (
+            <span
+              key={n}
+              className="h-2.5 w-2.5 animate-bounce rounded-full bg-violet-400"
+              style={{ animationDelay: `${n * 0.18}s` }}
+            />
+          ))}
+        </div>
+        <p className="text-sm font-medium text-violet-700">{AI_PHASES[phase]}</p>
+        <p className="max-w-sm text-center text-xs leading-5 text-slate-400">
+          AI 正在综合「企业基本信息 + 梳理方案 + 历史问答」起草回复，通常需要 20-60 秒，请勿关闭页面
+        </p>
       </div>
     </div>
   )
