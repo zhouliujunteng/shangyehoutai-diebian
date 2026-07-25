@@ -5,6 +5,7 @@ import MDEditor from '@uiw/react-md-editor'
 import { gql, logOperation, ANALYZE_FLOW_ID } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, formatTime } from '@/lib/labels'
+import { markProjectViewed } from '@/lib/projectMeta'
 import type { Analysis, Submission } from '@/lib/types'
 import AnswersView from '@/components/AnswersView'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
@@ -49,6 +50,8 @@ export default function ReviewDetail() {
       )
       setAnalysis(data.analysis_by_pk)
       if (data.analysis_by_pk) {
+        // 进入审核详情即视为已读，清除项目总览的更新红点
+        markProjectViewed(data.analysis_by_pk.project_id, `server:${auth?.account.username ?? ''}`)
         setEditContent(data.analysis_by_pk.content)
         const sub = await gql<{ submission: Submission[] }>(
           `query($pid: bigint!) {

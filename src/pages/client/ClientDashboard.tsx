@@ -13,6 +13,7 @@ import {
   type ClientProjectMeta,
 } from '@/lib/projectMeta'
 import { ClientProjectStatusBadge as ProjectStatusBadge } from '@/components/StatusBadge'
+import UpdateDot from '@/components/UpdateDot'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -44,16 +45,6 @@ function loadViewMode(): ViewMode {
   } catch {
     return 'card'
   }
-}
-
-/** 更新红点：有已发布报告/回复且用户尚未查看时显示 */
-function UpdateDot() {
-  return (
-    <span className="absolute -right-1 -top-1 flex h-3 w-3">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-      <span className="relative inline-flex h-3 w-3 rounded-full border-2 border-white bg-red-500" />
-    </span>
-  )
 }
 
 export default function ClientDashboard() {

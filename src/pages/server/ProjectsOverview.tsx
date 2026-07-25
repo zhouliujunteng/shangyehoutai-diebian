@@ -3,9 +3,11 @@ import { gql, logOperation } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { formatTime, PROJECT_STATUS_LABEL } from '@/lib/labels'
 import type { Project, ReviewAssignment } from '@/lib/types'
+import { hasUnseenServerActivity, serverActivityAt, type ServerProjectExtra } from '@/lib/projectMeta'
 import { ProjectStatusBadge } from '@/components/StatusBadge'
+import UpdateDot from '@/components/UpdateDot'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,11 +15,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Loader2, Settings2, Plus, Trash2, Search } from 'lucide-react'
+import { Loader2, Settings2, Plus, Trash2, Search, LayoutGrid, List } from 'lucide-react'
 
-interface ProjectRow extends Project {
+interface ProjectRow extends Project, ServerProjectExtra {
   owner?: { username: string } | null
   review_assignments: ReviewAssignment[]
+}
+
+type ViewMode = 'card' | 'list'
+const VIEW_MODE_KEY = 'serverProjectViewMode'
+
+function loadViewMode(): ViewMode {
+  try {
+    const v = localStorage.getItem(VIEW_MODE_KEY)
+    return v === 'card' ? 'card' : 'list'
+  } catch {
+    return 'list'
+  }
 }
 
 export default function ProjectsOverview() {
@@ -29,6 +43,19 @@ export default function ProjectsOverview() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [manageTarget, setManageTarget] = useState<ProjectRow | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
+
+  // 已读标记按账号隔离，避免同浏览器不同账号互相清除红点
+  const viewedScope = `server:${auth?.account.username ?? ''}`
+
+  const switchViewMode = (mode: ViewMode) => {
+    setViewMode(mode)
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode)
+    } catch {
+      /* ignore */
+    }
+  }
 
   const visibleProjects = projects.filter((p) => {
     const kw = search.trim().toLowerCase()
@@ -47,6 +74,9 @@ export default function ProjectsOverview() {
             id name status review_level created_at
             owner { username }
             review_assignments(order_by: { level: desc }) { id level reviewer project_id }
+            submissions(order_by: { id: desc }, limit: 1) { id created_at }
+            analyses(order_by: { id: desc }, limit: 1) { id status created_at }
+            questions(order_by: { id: desc }, limit: 1) { id status created_at }
           }
         }`,
       )
@@ -62,6 +92,28 @@ export default function ProjectsOverview() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter])
+
+  const reviewLevelOf = (p: ProjectRow) =>
+    p.review_level ? (
+      `${p.review_level} 级`
+    ) : (
+      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+        未设置
+      </Badge>
+    )
+
+  const reviewersOf = (p: ProjectRow) =>
+    p.review_assignments.length === 0 ? (
+      <span className="text-slate-400">未指派</span>
+    ) : (
+      <div className="flex flex-wrap gap-1">
+        {p.review_assignments.map((a) => (
+          <Badge key={a.id} variant="outline" className="bg-slate-50">
+            L{a.level} {a.reviewer}
+          </Badge>
+        ))}
+      </div>
+    )
 
   return (
     <div className="space-y-4">
@@ -90,18 +142,82 @@ export default function ProjectsOverview() {
               ))}
             </SelectContent>
           </Select>
+          {/* 卡片 / 列表 切换 */}
+          <div className="flex shrink-0 overflow-hidden rounded-md border border-slate-200 bg-white">
+            <button
+              type="button"
+              title="卡片视图"
+              onClick={() => switchViewMode('card')}
+              className={`flex h-9 w-10 items-center justify-center transition-colors ${
+                viewMode === 'card' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="列表视图"
+              onClick={() => switchViewMode('list')}
+              className={`flex h-9 w-10 items-center justify-center transition-colors ${
+                viewMode === 'list' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex justify-center py-16 text-slate-400">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
-            </div>
-          ) : visibleProjects.length === 0 ? (
-            <p className="py-16 text-center text-sm text-slate-400">没有符合条件的项目</p>
-          ) : (
+      {loading ? (
+        <Card>
+          <CardContent className="flex justify-center py-16 text-slate-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
+          </CardContent>
+        </Card>
+      ) : visibleProjects.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-slate-400">没有符合条件的项目</CardContent>
+        </Card>
+      ) : viewMode === 'card' ? (
+        /* ---------- 卡片视图 ---------- */
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visibleProjects.map((p) => (
+            <Card key={p.id} className="relative">
+              {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base leading-6">{p.name || '未命名项目'}</CardTitle>
+                  <ProjectStatusBadge status={p.status} />
+                </div>
+                <p className="text-xs text-slate-400">客户：{p.owner?.username ?? '—'}</p>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">审核等级</span>
+                  {reviewLevelOf(p)}
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="shrink-0 text-slate-500">审核人</span>
+                  {reviewersOf(p)}
+                </div>
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+                  <span>
+                    {serverActivityAt(p) ? `更新于 ${formatTime(serverActivityAt(p))}` : `创建于 ${formatTime(p.created_at)}`}
+                  </span>
+                  {canManage && (
+                    <Button size="sm" variant="outline" onClick={() => setManageTarget(p)}>
+                      <Settings2 className="mr-1 h-4 w-4" /> 审核设置
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        /* ---------- 列表视图 ---------- */
+        <Card>
+          <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -111,41 +227,33 @@ export default function ProjectsOverview() {
                     <TableHead>状态</TableHead>
                     <TableHead>审核等级</TableHead>
                     <TableHead>审核人</TableHead>
-                    <TableHead>创建时间</TableHead>
+                    <TableHead>最近动态</TableHead>
                     {canManage && <TableHead className="text-right">操作</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visibleProjects.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <span className="relative inline-block">
+                          {p.name || '未命名项目'}
+                          {hasUnseenServerActivity(p, viewedScope) && (
+                            <span className="absolute -right-3.5 top-0.5 flex h-2.5 w-2.5">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                            </span>
+                          )}
+                        </span>
+                      </TableCell>
                       <TableCell>{p.owner?.username ?? '—'}</TableCell>
                       <TableCell>
                         <ProjectStatusBadge status={p.status} />
                       </TableCell>
-                      <TableCell>
-                        {p.review_level ? (
-                          `${p.review_level} 级`
-                        ) : (
-                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                            未设置
-                          </Badge>
-                        )}
+                      <TableCell>{reviewLevelOf(p)}</TableCell>
+                      <TableCell>{reviewersOf(p)}</TableCell>
+                      <TableCell className="text-slate-500">
+                        {serverActivityAt(p) ? formatTime(serverActivityAt(p)) : formatTime(p.created_at)}
                       </TableCell>
-                      <TableCell>
-                        {p.review_assignments.length === 0 ? (
-                          <span className="text-slate-400">未指派</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {p.review_assignments.map((a) => (
-                              <Badge key={a.id} variant="outline" className="bg-slate-50">
-                                L{a.level} {a.reviewer}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-slate-500">{formatTime(p.created_at)}</TableCell>
                       {canManage && (
                         <TableCell className="text-right">
                           <Button size="sm" variant="outline" onClick={() => setManageTarget(p)}>
@@ -158,9 +266,9 @@ export default function ProjectsOverview() {
                 </TableBody>
               </Table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {manageTarget && (
         <ReviewSettingDialog

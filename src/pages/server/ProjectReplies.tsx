@@ -5,6 +5,7 @@ import { gql, logOperation } from '@/lib/graphql'
 import { AttachmentPicker, AttachmentView, type AttachmentItem } from '@/lib/attachments'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, initialReviewStage, formatTime } from '@/lib/labels'
+import { markProjectViewed } from '@/lib/projectMeta'
 import { projectDisplayName, type Analysis, type Project, type Question, type Submission } from '@/lib/types'
 import { QuestionStatusBadge, ReviewStatusBadge, ProjectStatusBadge } from '@/components/StatusBadge'
 import AnswersView from '@/components/AnswersView'
@@ -58,6 +59,8 @@ export default function ProjectReplies() {
         { id: projectId },
       )
       setProject(data.project_by_pk)
+      // 进入项目回复页即视为已读，清除项目总览的更新红点
+      if (data.project_by_pk) markProjectViewed(data.project_by_pk.id, `server:${myName}`)
       // 初始化各问题的回复编辑内容
       const init: Record<number, string> = {}
       const initFiles: Record<number, AttachmentItem[]> = {}

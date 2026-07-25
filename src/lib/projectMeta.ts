@@ -60,13 +60,37 @@ export function projectSortTs(p: ClientProjectMeta): number {
   return tsOf(projectUpdatedAt(p)) || tsOf(p.created_at)
 }
 
+/** 后台视角的项目动态：资料提交 / 报告新版本 / 客户提问，取三者最新时间 */
+export interface ServerProjectExtra {
+  submissions?: { id: number; created_at?: string }[] | null
+  analyses?: { id: number; status?: string; created_at?: string }[] | null
+  questions?: { id: number; status?: string; created_at?: string }[] | null
+}
+
+export function serverActivityAt(p: ServerProjectExtra): string | null {
+  let latest = 0
+  for (const s of p.submissions ?? []) latest = Math.max(latest, tsOf(s.created_at))
+  for (const a of p.analyses ?? []) latest = Math.max(latest, tsOf(a.created_at))
+  for (const q of p.questions ?? []) latest = Math.max(latest, tsOf(q.created_at))
+  return latest > 0 ? new Date(latest).toISOString() : null
+}
+
 /* ---------------- 已读标记（更新红点） ---------------- */
 
-const VIEWED_KEY = 'clientProjectViewedAt'
+/**
+ * 已读标记按作用域（scope）隔离存储：
+ * - 客户端默认 'client'
+ * - 后台建议用 `server:${username}`，避免同一浏览器不同账号互相清除红点
+ */
+const VIEWED_KEY_PREFIX = 'projectViewedAt:'
 
-function getViewedMap(): Record<string, number> {
+function viewedKey(scope: string): string {
+  return VIEWED_KEY_PREFIX + scope
+}
+
+function getViewedMap(scope: string): Record<string, number> {
   try {
-    const raw = localStorage.getItem(VIEWED_KEY)
+    const raw = localStorage.getItem(viewedKey(scope))
     if (!raw) return {}
     const obj = JSON.parse(raw)
     return obj && typeof obj === 'object' ? (obj as Record<string, number>) : {}
@@ -75,10 +99,10 @@ function getViewedMap(): Record<string, number> {
   }
 }
 
-/** 进入项目详情时调用：记录查看时间，清除列表更新红点 */
-export function markProjectViewed(id: number | string): void {
+/** 查看项目内容时调用：记录查看时间，清除列表更新红点 */
+export function markProjectViewed(id: number | string, scope = 'client'): void {
   try {
-    const map = getViewedMap()
+    const map = getViewedMap(scope)
     map[String(id)] = Date.now()
     // 控制体积，最多保留 500 条
     const keys = Object.keys(map)
@@ -88,15 +112,22 @@ export function markProjectViewed(id: number | string): void {
         .slice(0, keys.length - 500)
         .forEach((k) => delete map[k])
     }
-    localStorage.setItem(VIEWED_KEY, JSON.stringify(map))
+    localStorage.setItem(viewedKey(scope), JSON.stringify(map))
   } catch {
     /* localStorage 不可用时静默忽略 */
   }
 }
 
-/** 是否有未查看的更新（梳理完成 / 提问回复后，用户尚未进入项目查看） */
-export function hasUnseenUpdate(p: ClientProjectMeta): boolean {
+/** 客户端：是否有未查看的更新（梳理完成 / 提问回复后，用户尚未进入项目查看） */
+export function hasUnseenUpdate(p: ClientProjectMeta, scope = 'client'): boolean {
   const updated = tsOf(projectUpdatedAt(p))
   if (!updated) return false
-  return updated > (getViewedMap()[String(p.id)] ?? 0)
+  return updated > (getViewedMap(scope)[String(p.id)] ?? 0)
+}
+
+/** 后台：是否有未查看的项目动态（新提交 / 新报告版本 / 新提问） */
+export function hasUnseenServerActivity(p: ServerProjectExtra & { id: number | string }, scope: string): boolean {
+  const updated = tsOf(serverActivityAt(p))
+  if (!updated) return false
+  return updated > (getViewedMap(scope)[String(p.id)] ?? 0)
 }
