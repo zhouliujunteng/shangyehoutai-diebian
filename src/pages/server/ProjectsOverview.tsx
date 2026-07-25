@@ -3,7 +3,7 @@ import { gql, logOperation } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { formatTime, PROJECT_STATUS_LABEL } from '@/lib/labels'
 import type { Project, ReviewAssignment } from '@/lib/types'
-import { hasUnseenServerActivity, serverActivityAt, type ServerProjectExtra } from '@/lib/projectMeta'
+import { hasUnseenServerActivity, serverActivityAt, groupIndex, PROJECT_STATUS_GROUP_ORDER, type ServerProjectExtra } from '@/lib/projectMeta'
 import { ProjectStatusBadge } from '@/components/StatusBadge'
 import UpdateDot from '@/components/UpdateDot'
 import { Button } from '@/components/ui/button'
@@ -57,11 +57,20 @@ export default function ProjectsOverview() {
     }
   }
 
-  const visibleProjects = projects.filter((p) => {
-    const kw = search.trim().toLowerCase()
-    if (!kw) return true
-    return p.name.toLowerCase().includes(kw) || (p.owner?.username ?? '').toLowerCase().includes(kw)
-  })
+  const visibleProjects = projects
+    .filter((p) => {
+      const kw = search.trim().toLowerCase()
+      if (!kw) return true
+      return p.name.toLowerCase().includes(kw) || (p.owner?.username ?? '').toLowerCase().includes(kw)
+    })
+    // 默认排序：先按状态分类分组，组内按最近动态时间倒序（先更新的在前面）
+    .sort((a, b) => {
+      const g = groupIndex(PROJECT_STATUS_GROUP_ORDER, a.status) - groupIndex(PROJECT_STATUS_GROUP_ORDER, b.status)
+      if (g !== 0) return g
+      const ta = new Date(serverActivityAt(a) ?? a.created_at ?? 0).getTime()
+      const tb = new Date(serverActivityAt(b) ?? b.created_at ?? 0).getTime()
+      return tb - ta
+    })
 
   const load = async () => {
     setLoading(true)

@@ -75,6 +75,35 @@ export function serverActivityAt(p: ServerProjectExtra): string | null {
   return latest > 0 ? new Date(latest).toISOString() : null
 }
 
+/** 项目状态分组顺序（「分类-更新时间」排序共用：先按此分类，组内按时间倒序） */
+export const PROJECT_STATUS_GROUP_ORDER = [
+  'created',
+  'collecting',
+  'pending_confirm',
+  'supplementing',
+  'submitted',
+  'analyzing',
+  'in_review',
+  'published',
+]
+
+/** 审核/回复状态分组顺序（'none' 表示尚未起草，排最前需要优先处理） */
+export const REVIEW_STATUS_GROUP_ORDER = [
+  'none',
+  'pending_setup',
+  'pending_l3',
+  'pending_l2',
+  'pending_l1',
+  'published',
+  'superseded',
+]
+
+/** 状态在分组顺序中的位置，未知状态排最后 */
+export function groupIndex(order: string[], status: string): number {
+  const i = order.indexOf(status)
+  return i === -1 ? order.length : i
+}
+
 /* ---------------- 已读标记（更新红点） ---------------- */
 
 /**
@@ -118,16 +147,19 @@ export function markProjectViewed(id: number | string, scope = 'client'): void {
   }
 }
 
+/** 通用：某时间相对已读标记是否为未读更新（红点判断的底层实现） */
+export function isUnseen(ts: string | null | undefined, id: number | string, scope: string): boolean {
+  const t = tsOf(ts)
+  if (!t) return false
+  return t > (getViewedMap(scope)[String(id)] ?? 0)
+}
+
 /** 客户端：是否有未查看的更新（梳理完成 / 提问回复后，用户尚未进入项目查看） */
 export function hasUnseenUpdate(p: ClientProjectMeta, scope = 'client'): boolean {
-  const updated = tsOf(projectUpdatedAt(p))
-  if (!updated) return false
-  return updated > (getViewedMap(scope)[String(p.id)] ?? 0)
+  return isUnseen(projectUpdatedAt(p), p.id, scope)
 }
 
 /** 后台：是否有未查看的项目动态（新提交 / 新报告版本 / 新提问） */
 export function hasUnseenServerActivity(p: ServerProjectExtra & { id: number | string }, scope: string): boolean {
-  const updated = tsOf(serverActivityAt(p))
-  if (!updated) return false
-  return updated > (getViewedMap(scope)[String(p.id)] ?? 0)
+  return isUnseen(serverActivityAt(p), p.id, scope)
 }

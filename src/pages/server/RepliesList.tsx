@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { gql } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { formatTime } from '@/lib/labels'
+import { isUnseen, groupIndex, REVIEW_STATUS_GROUP_ORDER } from '@/lib/projectMeta'
 import type { Question } from '@/lib/types'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -33,7 +34,17 @@ export default function RepliesList() {
   const myPending = pendingStatusForLevel(myLevel)
 
   const kw = search.trim().toLowerCase()
-  const visibleGroups = groups.filter((g) => !kw || g.name.toLowerCase().includes(kw))
+  const viewedScope = `server:${auth?.account.username ?? ''}`
+  // 默认排序：先按回复状态分类分组（未起草排最前），组内按最新时间倒序
+  const visibleGroups = groups
+    .filter((g) => !kw || g.name.toLowerCase().includes(kw))
+    .sort((a, b) => {
+      const g =
+        groupIndex(REVIEW_STATUS_GROUP_ORDER, a.latestReplyStatus ?? 'none') -
+        groupIndex(REVIEW_STATUS_GROUP_ORDER, b.latestReplyStatus ?? 'none')
+      if (g !== 0) return g
+      return new Date(b.latestTime ?? 0).getTime() - new Date(a.latestTime ?? 0).getTime()
+    })
 
   useEffect(() => {
     ;(async () => {
@@ -72,6 +83,11 @@ export default function RepliesList() {
           if (needMe(q)) g.needMeCount += 1
           const r = q.replies?.[0]
           if (r && !g.latestReplyStatus) g.latestReplyStatus = r.status
+          // 最新时间取提问与回复中的较新者
+          const rTs = r?.created_at ? new Date(r.created_at).getTime() : 0
+          const qTs = q.created_at ? new Date(q.created_at).getTime() : 0
+          const latest = Math.max(rTs, qTs)
+          if (latest > new Date(g.latestTime ?? 0).getTime()) g.latestTime = new Date(latest).toISOString()
         }
         setGroups([...map.values()])
       } catch (e) {
@@ -123,7 +139,17 @@ export default function RepliesList() {
                 <TableBody>
                   {visibleGroups.map((g) => (
                     <TableRow key={g.project_id}>
-                      <TableCell className="font-medium">{g.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <span className="relative inline-block">
+                          {g.name}
+                          {isUnseen(g.latestTime, g.project_id, viewedScope) && (
+                            <span className="absolute -right-3.5 top-0.5 flex h-2.5 w-2.5">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                            </span>
+                          )}
+                        </span>
+                      </TableCell>
                       <TableCell>{g.questions.length}</TableCell>
                       <TableCell>
                         {g.needMeCount > 0 ? (

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { gql } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { formatTime } from '@/lib/labels'
+import { isUnseen, groupIndex, REVIEW_STATUS_GROUP_ORDER } from '@/lib/projectMeta'
 import type { Analysis } from '@/lib/types'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -85,7 +86,15 @@ export default function ReviewWorkbench() {
 
   const kw = search.trim().toLowerCase()
   const matchKw = (a: Analysis) => !kw || (a.project?.name ?? '').toLowerCase().includes(kw)
-  const shownList = (tab === 'mine' ? visibleList : allList).filter(matchKw)
+  const viewedScope = `server:${myName}`
+  // 默认排序：先按审核状态分类分组，组内按提交时间倒序（先更新的在前面）
+  const shownList = (tab === 'mine' ? visibleList : allList)
+    .filter(matchKw)
+    .sort((a, b) => {
+      const g = groupIndex(REVIEW_STATUS_GROUP_ORDER, a.status) - groupIndex(REVIEW_STATUS_GROUP_ORDER, b.status)
+      if (g !== 0) return g
+      return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+    })
 
   const renderTable = (rows: Analysis[], showAssignee: boolean) => (
     <div className="overflow-x-auto">
@@ -103,7 +112,15 @@ export default function ReviewWorkbench() {
           {rows.map((a) => (
             <TableRow key={a.id}>
               <TableCell className="font-medium">
-                {a.project?.name ?? `#${a.project_id}`}
+                <span className="relative inline-block">
+                  {a.project?.name ?? `#${a.project_id}`}
+                  {isUnseen(a.created_at, a.project_id, viewedScope) && (
+                    <span className="absolute -right-3.5 top-0.5 flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                    </span>
+                  )}
+                </span>
                 {showAssignee && assignMap[a.project_id]?.[level] === myName && (
                   <span className="ml-1.5 text-xs text-blue-500">（指派给我）</span>
                 )}
