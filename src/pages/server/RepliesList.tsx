@@ -6,6 +6,7 @@ import { formatTime } from '@/lib/labels'
 import { isUnseen, groupIndex, REVIEW_STATUS_GROUP_ORDER } from '@/lib/projectMeta'
 import type { Question } from '@/lib/types'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
+import UpdateDot from '@/components/UpdateDot'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -138,17 +139,10 @@ export default function RepliesList() {
                 </TableHeader>
                 <TableBody>
                   {visibleGroups.map((g) => (
-                    <TableRow key={g.project_id}>
+                    <TableRow key={g.project_id} className="relative">
                       <TableCell className="font-medium">
-                        <span className="relative inline-block">
-                          {g.name}
-                          {isUnseen(g.latestTime, g.project_id, viewedScope) && (
-                            <span className="absolute -right-3.5 top-0.5 flex h-2.5 w-2.5">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-                            </span>
-                          )}
-                        </span>
+                        {g.name}
+                        {isUnseen(g.latestTime, g.project_id, viewedScope) && <UpdateDot />}
                       </TableCell>
                       <TableCell>{g.questions.length}</TableCell>
                       <TableCell>

@@ -242,17 +242,10 @@ export default function ProjectsOverview() {
                 </TableHeader>
                 <TableBody>
                   {visibleProjects.map((p) => (
-                    <TableRow key={p.id}>
+                    <TableRow key={p.id} className="relative">
                       <TableCell className="font-medium">
-                        <span className="relative inline-block">
-                          {p.name || '未命名项目'}
-                          {hasUnseenServerActivity(p, viewedScope) && (
-                            <span className="absolute -right-3.5 top-0.5 flex h-2.5 w-2.5">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-                            </span>
-                          )}
-                        </span>
+                        {p.name || '未命名项目'}
+                        {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
                       </TableCell>
                       <TableCell>{p.owner?.username ?? '—'}</TableCell>
                       <TableCell>

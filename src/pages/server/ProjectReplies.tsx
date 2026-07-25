@@ -8,6 +8,7 @@ import { nextReviewStage, initialReviewStage, formatTime } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
 import { projectDisplayName, type Analysis, type Project, type Question, type Submission } from '@/lib/types'
 import { QuestionStatusBadge, ReviewStatusBadge, ProjectStatusBadge } from '@/components/StatusBadge'
+import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -329,11 +330,12 @@ export default function ProjectReplies() {
                 <AttachmentView items={q.attachments} />
 
                 {q.status === 'replied' && reply ? (
-                  <div className="rounded-lg bg-green-50 px-4 py-3 space-y-3">
-                    <div>
-                      <p className="mb-1 text-xs font-medium text-green-700">已发送的回复</p>
-                      <p className="whitespace-pre-wrap text-sm text-slate-800">{reply.content}</p>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-slate-500">老师回复（已发送）</p>
+                      <CopyTextButton text={reply.content} />
                     </div>
+                    <p className="whitespace-pre-wrap text-sm text-slate-700">{reply.content}</p>
                     <AttachmentView items={reply.attachments} />
                   </div>
                 ) : !reply ? (

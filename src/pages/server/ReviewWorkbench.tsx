@@ -6,6 +6,7 @@ import { formatTime } from '@/lib/labels'
 import { isUnseen, groupIndex, REVIEW_STATUS_GROUP_ORDER } from '@/lib/projectMeta'
 import type { Analysis } from '@/lib/types'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
+import UpdateDot from '@/components/UpdateDot'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -110,17 +111,10 @@ export default function ReviewWorkbench() {
         </TableHeader>
         <TableBody>
           {rows.map((a) => (
-            <TableRow key={a.id}>
+            <TableRow key={a.id} className="relative">
               <TableCell className="font-medium">
-                <span className="relative inline-block">
-                  {a.project?.name ?? `#${a.project_id}`}
-                  {isUnseen(a.created_at, a.project_id, viewedScope) && (
-                    <span className="absolute -right-3.5 top-0.5 flex h-2.5 w-2.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-                    </span>
-                  )}
-                </span>
+                {a.project?.name ?? `#${a.project_id}`}
+                {isUnseen(a.created_at, a.project_id, viewedScope) && <UpdateDot />}
                 {showAssignee && assignMap[a.project_id]?.[level] === myName && (
                   <span className="ml-1.5 text-xs text-blue-500">（指派给我）</span>
                 )}

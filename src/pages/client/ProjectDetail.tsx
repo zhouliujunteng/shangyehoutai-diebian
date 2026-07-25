@@ -13,6 +13,7 @@ import {
 import { projectDisplayName, type Analysis, type CollectLink, type Project, type Question, type Submission } from '@/lib/types'
 import { markProjectViewed } from '@/lib/projectMeta'
 import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, QuestionStatusBadge } from '@/components/StatusBadge'
+import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -720,10 +721,11 @@ function QuestionsCard({
                   <div className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">{formatTime(q.created_at)}</div>
                   {q.status === 'replied' && publishedReply && (
                     <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
-                      <div>
-                        <p className="mb-1 text-xs font-medium text-slate-500">官方回复</p>
-                        <p className="whitespace-pre-wrap text-sm text-slate-700">{publishedReply.content}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-slate-500">老师回复</p>
+                        <CopyTextButton text={publishedReply.content} />
                       </div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-700">{publishedReply.content}</p>
                       <AttachmentView items={publishedReply.attachments} />
                     </div>
                   )}
