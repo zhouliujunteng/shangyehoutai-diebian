@@ -132,6 +132,39 @@ export default function ProjectsOverview() {
       </div>
     )
 
+  const projectCard = (p: ProjectRow) => (
+    <Card key={p.id} className="relative">
+      {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base leading-6">{p.name || '未命名项目'}</CardTitle>
+          <ProjectStatusBadge status={p.status} />
+        </div>
+        <p className="text-xs text-slate-400">客户：{displayOf(p.owner?.username)}</p>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-500">审核等级</span>
+          {reviewLevelOf(p)}
+        </div>
+        <div className="flex items-start justify-between gap-2">
+          <span className="shrink-0 text-slate-500">审核人</span>
+          {reviewersOf(p)}
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+          <span>
+            {serverActivityAt(p) ? `更新于 ${formatTime(serverActivityAt(p))}` : `创建于 ${formatTime(p.created_at)}`}
+          </span>
+          {canManage && (
+            <Button size="sm" variant="outline" onClick={() => setManageTarget(p)}>
+              <Settings2 className="mr-1 h-4 w-4" /> 审核设置
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -195,89 +228,64 @@ export default function ProjectsOverview() {
         <Card>
           <CardContent className="py-16 text-center text-sm text-slate-400">没有符合条件的项目</CardContent>
         </Card>
-      ) : viewMode === 'card' ? (
-        /* ---------- 卡片视图 ---------- */
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleProjects.map((p) => (
-            <Card key={p.id} className="relative">
-              {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="text-base leading-6">{p.name || '未命名项目'}</CardTitle>
-                  <ProjectStatusBadge status={p.status} />
-                </div>
-                <p className="text-xs text-slate-400">客户：{displayOf(p.owner?.username)}</p>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">审核等级</span>
-                  {reviewLevelOf(p)}
-                </div>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="shrink-0 text-slate-500">审核人</span>
-                  {reviewersOf(p)}
-                </div>
-                <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
-                  <span>
-                    {serverActivityAt(p) ? `更新于 ${formatTime(serverActivityAt(p))}` : `创建于 ${formatTime(p.created_at)}`}
-                  </span>
-                  {canManage && (
-                    <Button size="sm" variant="outline" onClick={() => setManageTarget(p)}>
-                      <Settings2 className="mr-1 h-4 w-4" /> 审核设置
-                    </Button>
-                  )}
+      ) : (
+        <>
+          {/* 手机端：无论哪种视图模式都用竖排卡片，不横向滑动 */}
+          <div className="grid gap-4 sm:hidden">{visibleProjects.map((p) => projectCard(p))}</div>
+          {viewMode === 'card' ? (
+            /* ---------- 卡片视图（平板/桌面） ---------- */
+            <div className="hidden gap-4 sm:grid sm:grid-cols-2 lg:grid-cols-3">
+              {visibleProjects.map((p) => projectCard(p))}
+            </div>
+          ) : (
+            /* ---------- 列表视图（平板/桌面） ---------- */
+            <Card className="hidden sm:block">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>项目名称</TableHead>
+                        <TableHead>所属客户</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>审核等级</TableHead>
+                        <TableHead>审核人</TableHead>
+                        <TableHead>最近动态</TableHead>
+                        {canManage && <TableHead className="text-right">操作</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {visibleProjects.map((p) => (
+                        <TableRow key={p.id} className="relative">
+                          <TableCell className="font-medium">
+                            {p.name || '未命名项目'}
+                            {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
+                          </TableCell>
+                          <TableCell>{displayOf(p.owner?.username)}</TableCell>
+                          <TableCell>
+                            <ProjectStatusBadge status={p.status} />
+                          </TableCell>
+                          <TableCell>{reviewLevelOf(p)}</TableCell>
+                          <TableCell>{reviewersOf(p)}</TableCell>
+                          <TableCell className="text-slate-500">
+                            {serverActivityAt(p) ? formatTime(serverActivityAt(p)) : formatTime(p.created_at)}
+                          </TableCell>
+                          {canManage && (
+                            <TableCell className="text-right">
+                              <Button size="sm" variant="outline" onClick={() => setManageTarget(p)}>
+                                <Settings2 className="mr-1 h-4 w-4" /> 审核设置
+                              </Button>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      ) : (
-        /* ---------- 列表视图 ---------- */
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>项目名称</TableHead>
-                    <TableHead>所属客户</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>审核等级</TableHead>
-                    <TableHead>审核人</TableHead>
-                    <TableHead>最近动态</TableHead>
-                    {canManage && <TableHead className="text-right">操作</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleProjects.map((p) => (
-                    <TableRow key={p.id} className="relative">
-                      <TableCell className="font-medium">
-                        {p.name || '未命名项目'}
-                        {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
-                      </TableCell>
-                      <TableCell>{displayOf(p.owner?.username)}</TableCell>
-                      <TableCell>
-                        <ProjectStatusBadge status={p.status} />
-                      </TableCell>
-                      <TableCell>{reviewLevelOf(p)}</TableCell>
-                      <TableCell>{reviewersOf(p)}</TableCell>
-                      <TableCell className="text-slate-500">
-                        {serverActivityAt(p) ? formatTime(serverActivityAt(p)) : formatTime(p.created_at)}
-                      </TableCell>
-                      {canManage && (
-                        <TableCell className="text-right">
-                          <Button size="sm" variant="outline" onClick={() => setManageTarget(p)}>
-                            <Settings2 className="mr-1 h-4 w-4" /> 审核设置
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+          )}
+        </>
       )}
 
       {manageTarget && (

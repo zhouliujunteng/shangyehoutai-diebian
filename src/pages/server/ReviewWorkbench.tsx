@@ -97,6 +97,34 @@ export default function ReviewWorkbench() {
       return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
     })
 
+  /* 手机端卡片：竖排展示，无需横向滑动 */
+  const analysisCard = (a: Analysis, showAssignee: boolean) => (
+    <Card key={a.id} className="relative">
+      {isUnseen(a.created_at, a.project_id, viewedScope) && <UpdateDot />}
+      <CardContent className="space-y-3 py-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-medium text-slate-800">
+              {a.project?.name ?? `#${a.project_id}`}
+              {showAssignee && assignMap[a.project_id]?.[level] === myName && (
+                <span className="ml-1.5 text-xs font-normal text-blue-500">（指派给我）</span>
+              )}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-400">
+              v{a.version} · {formatTime(a.created_at)}
+            </p>
+          </div>
+          <ReviewStatusBadge status={a.status} />
+        </div>
+        <div className="flex justify-end border-t border-slate-100 pt-3">
+          <Button size="sm" variant="outline" onClick={() => navigate(`/server/review/${a.id}`)}>
+            查看 <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
   const renderTable = (rows: Analysis[], showAssignee: boolean) => (
     <div className="overflow-x-auto">
       <Table>
@@ -144,7 +172,7 @@ export default function ReviewWorkbench() {
           我的级别：{level} 级{auth?.account.account_type === 'super_admin' ? '（超管·终审）' : ''}
         </span>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
           variant={tab === 'mine' ? 'default' : 'outline'}
@@ -166,19 +194,26 @@ export default function ReviewWorkbench() {
           />
         </div>
       </div>
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex justify-center py-16 text-slate-400">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
-            </div>
-          ) : shownList.length === 0 ? (
-            <p className="py-16 text-center text-sm text-slate-400">没有符合条件的梳理报告</p>
-          ) : (
-            renderTable(shownList, tab === 'mine')
-          )}
-        </CardContent>
-      </Card>
+      {loading ? (
+        <Card>
+          <CardContent className="flex justify-center py-16 text-slate-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
+          </CardContent>
+        </Card>
+      ) : shownList.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-slate-400">没有符合条件的梳理报告</CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* 手机端：竖排卡片 */}
+          <div className="space-y-3 sm:hidden">{shownList.map((a) => analysisCard(a, tab === 'mine'))}</div>
+          {/* 平板/桌面：表格 */}
+          <Card className="hidden sm:block">
+            <CardContent className="p-0">{renderTable(shownList, tab === 'mine')}</CardContent>
+          </Card>
+        </>
+      )}
     </div>
   )
 }

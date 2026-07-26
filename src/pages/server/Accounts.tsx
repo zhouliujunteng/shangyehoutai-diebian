@@ -88,7 +88,7 @@ export default function Accounts() {
       const data = await gql<{ account: AccountRow[] }>(
         `query {
           account(order_by: { id: asc }) {
-            id username account_type reviewer_level project_quota status
+            id username nickname account_type reviewer_level project_quota status
           }
         }`,
       )
@@ -229,9 +229,95 @@ export default function Accounts() {
     }
   }
 
+  /* 手机端账号卡片：竖排展示，无需横向滑动 */
+  const accountCard = (a: AccountRow) => {
+    const isSelf = String(a.id) === String(auth?.account.id)
+    return (
+      <Card key={a.id}>
+        <CardContent className="space-y-3 py-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate font-medium text-slate-800">
+                {a.nickname?.trim() || a.username}
+                {isSelf && <span className="ml-1.5 text-xs font-normal text-slate-400">（我）</span>}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {ACCOUNT_TYPE_LABEL[a.account_type] ?? a.account_type}
+                {a.nickname?.trim() ? ` · ${a.username}` : ''}
+              </p>
+            </div>
+            <Badge
+              variant="outline"
+              className={
+                a.status === 'active'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }
+            >
+              {a.status === 'active' ? '正常' : '已停用'}
+            </Badge>
+          </div>
+          {a.account_type === 'reviewer' && (
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-slate-500">审核级别</span>
+              {isSuperAdmin && !isSelf ? (
+                <Select
+                  value={String(a.reviewer_level ?? 3)}
+                  onValueChange={(v) => changeLevel(a, v)}
+                  disabled={acting === `lv-${a.id}`}
+                >
+                  <SelectTrigger className="h-8 w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 级（初审）</SelectItem>
+                    <SelectItem value="2">2 级（复审）</SelectItem>
+                    <SelectItem value="1">1 级（终审）</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span>{a.reviewer_level ? `${a.reviewer_level} 级` : '—'}</span>
+              )}
+            </div>
+          )}
+          {a.account_type === 'client' && (
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-slate-500">项目配额</span>
+              <span>{a.project_quota || '不限'}</span>
+            </div>
+          )}
+          {a.account_type !== 'super_admin' && !isSelf && (
+            <div className="flex justify-end border-t border-slate-100 pt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                className={
+                  a.status === 'active'
+                    ? 'border-red-200 text-red-600 hover:bg-red-50'
+                    : 'border-green-200 text-green-600 hover:bg-green-50'
+                }
+                disabled={acting === String(a.id)}
+                onClick={() => toggleStatus(a)}
+              >
+                {acting === String(a.id) ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : a.status === 'active' ? (
+                  <Ban className="mr-1 h-4 w-4" />
+                ) : (
+                  <CircleCheck className="mr-1 h-4 w-4" />
+                )}
+                {a.status === 'active' ? '停用' : '启用'}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-slate-900">账号管理（{visibleList.length}）</h1>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -260,14 +346,20 @@ export default function Accounts() {
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex justify-center py-16 text-slate-400">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+      {loading ? (
+        <Card>
+          <CardContent className="flex justify-center py-16 text-slate-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* 手机端：竖排卡片 */}
+          <div className="space-y-3 sm:hidden">{visibleList.map((a) => accountCard(a))}</div>
+          {/* 平板/桌面：表格 */}
+          <Card className="hidden sm:block">
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -402,9 +494,10 @@ export default function Accounts() {
                 </TableBody>
               </Table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </>
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

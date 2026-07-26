@@ -93,11 +93,47 @@ export default function RepliesList() {
     })()
   }, [myPending])
 
+  /* 手机端卡片：竖排展示，无需横向滑动 */
+  const groupCard = (g: ProjectGroup) => (
+    <Card key={g.project_id} className="relative">
+      {isUnseen(g.latestTime, g.project_id, viewedScope) && <UpdateDot />}
+      <CardContent className="space-y-3 py-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-medium text-slate-800">{g.name}</p>
+            <p className="mt-0.5 text-xs text-slate-400">
+              {g.questions.length} 条提问 · {formatTime(g.latestTime)}
+            </p>
+          </div>
+          {g.latestReplyStatus ? (
+            <ReviewStatusBadge status={g.latestReplyStatus} />
+          ) : (
+            <Badge variant="outline" className="bg-slate-100 text-slate-500 border-slate-200">
+              未起草
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+          {g.needMeCount > 0 ? (
+            <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
+              {g.needMeCount} 条待我处理
+            </Badge>
+          ) : (
+            <span className="text-xs text-slate-400">暂无待处理</span>
+          )}
+          <Button size="sm" variant="outline" onClick={() => navigate(`/server/replies/${g.project_id}`)}>
+            处理 <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-slate-900">回复处理（{visibleGroups.length} 个项目）</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -110,17 +146,25 @@ export default function RepliesList() {
           <span className="text-sm text-slate-500">我的级别：{myLevel} 级</span>
         </div>
       </div>
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex justify-center py-16 text-slate-400">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
-            </div>
-          ) : visibleGroups.length === 0 ? (
-            <p className="py-16 text-center text-sm text-slate-400">没有符合条件的提问</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
+      {loading ? (
+        <Card>
+          <CardContent className="flex justify-center py-16 text-slate-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
+          </CardContent>
+        </Card>
+      ) : visibleGroups.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-slate-400">没有符合条件的提问</CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* 手机端：竖排卡片 */}
+          <div className="space-y-3 sm:hidden">{visibleGroups.map((g) => groupCard(g))}</div>
+          {/* 平板/桌面：表格 */}
+          <Card className="hidden sm:block">
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>项目名称</TableHead>
@@ -166,9 +210,10 @@ export default function RepliesList() {
                 </TableBody>
               </Table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </>
+      )}
     </div>
   )
 }
