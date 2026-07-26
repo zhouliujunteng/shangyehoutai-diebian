@@ -169,11 +169,11 @@ export default function ProjectsOverview() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold text-slate-900">项目总览（{visibleProjects.length}）</h1>
-        <div className="flex gap-2">
-          <div className="relative">
+        <div className="flex flex-wrap gap-2">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
-              className="w-52 bg-white pl-9"
+              className="w-full bg-white pl-9 sm:w-52"
               placeholder="搜索项目或客户…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

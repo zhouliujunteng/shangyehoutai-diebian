@@ -134,10 +134,10 @@ export default function RepliesList() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-slate-900">回复处理（{visibleGroups.length} 个项目）</h1>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
-              className="w-52 bg-white pl-9"
+              className="w-full bg-white pl-9 sm:w-52"
               placeholder="搜索项目名称…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

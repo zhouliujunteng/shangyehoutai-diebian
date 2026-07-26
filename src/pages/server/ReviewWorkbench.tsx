@@ -184,10 +184,10 @@ export default function ReviewWorkbench() {
         <Button size="sm" variant={tab === 'all' ? 'default' : 'outline'} className={tab === 'all' ? 'bg-slate-900 hover:bg-slate-800' : ''} onClick={() => setTab('all')}>
           全部梳理报告
         </Button>
-        <div className="relative ml-auto">
+        <div className="relative min-w-0 flex-1 sm:flex-none sm:ml-auto">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
-            className="w-52 bg-white pl-9"
+            className="w-full bg-white pl-9 sm:w-52"
             placeholder="搜索项目名称…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
