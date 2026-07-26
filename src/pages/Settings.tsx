@@ -125,7 +125,7 @@ export default function AccountSettings() {
     try {
       await gql(
         `mutation($p: String!, $c: String!, $np: String!) {
-          resetPasswordWithPhone(telephone: $p, verificationCode: $c, password: $np)
+          resetPasswordWithPhone(telephone: $p, verificationCode: $c, password: $np) { account { id } }
         }`,
         { p: boundPhone, c: resetCode.trim(), np: newPassword },
       )
