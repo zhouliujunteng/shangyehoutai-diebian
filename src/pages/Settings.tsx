@@ -184,14 +184,26 @@ export default function AccountSettings() {
             <>
               <p className="text-xs text-slate-400">修改密码前必须先绑定手机号，验证码通过短信发送</p>
               <div className="flex gap-2">
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="输入 11 位手机号" maxLength={11} />
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="输入 11 位手机号"
+                  maxLength={11}
+                  inputMode="numeric"
+                />
                 <Button variant="outline" className="shrink-0" disabled={bindSending} onClick={sendBindCode}>
                   {bindSending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-3.5 w-3.5" />}
                   发送验证码
                 </Button>
               </div>
               <div className="flex gap-2">
-                <Input value={bindCode} onChange={(e) => setBindCode(e.target.value)} placeholder="输入短信验证码" maxLength={6} />
+                <Input
+                  value={bindCode}
+                  onChange={(e) => setBindCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="输入短信验证码"
+                  maxLength={6}
+                  inputMode="numeric"
+                />
                 <Button className="shrink-0 bg-slate-900 hover:bg-slate-800" disabled={binding} onClick={bindPhone}>
                   {binding && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />} 绑定
                 </Button>
@@ -225,7 +237,13 @@ export default function AccountSettings() {
                 />
               </div>
               <div className="flex gap-2">
-                <Input value={resetCode} onChange={(e) => setResetCode(e.target.value)} placeholder="短信验证码" maxLength={6} />
+                <Input
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="短信验证码"
+                  maxLength={6}
+                  inputMode="numeric"
+                />
                 <Button variant="outline" className="shrink-0" disabled={resetSending} onClick={sendResetCode}>
                   {resetSending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-3.5 w-3.5" />}
                   发送验证码
