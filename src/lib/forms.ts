@@ -21,7 +21,7 @@ export const BASIC_GROUPS: FieldGroup[] = [
     title: 'A. 基础信息',
     fields: [
       { key: '企业名称', type: 'input', required: true, placeholder: '请输入企业全称' },
-      { key: '所属行业', type: 'input', required: true, placeholder: '如：餐饮、零售、制造业…' },
+      { key: '所属行业（服务/销售/生产/综合一体）', type: 'input', required: true, placeholder: '如：餐饮、零售、制造业…' },
       { key: '经营年限', type: 'input', required: true, placeholder: '如：5 年' },
       { key: '您的职位', type: 'input', required: true, placeholder: '如：创始人、总经理…' },
       { key: '员工人数', type: 'input', required: true, placeholder: '如：15人，3个大厨、2个服务员…' },
@@ -41,7 +41,7 @@ export const BASIC_GROUPS: FieldGroup[] = [
     title: 'C. 核心痛点',
     fields: [
       { key: '当前最头疼的三个问题', type: 'textarea', required: true, placeholder: '请尽量具体描述' },
-      { key: '为解决痛点做过哪些努力', type: 'textarea', required: true, placeholder: '尝试过的方法、效果如何' },
+      { key: '尝试过的解决方案及效果如何', type: 'textarea', required: true, placeholder: '尝试过的方法、效果如何' },
       { key: '有什么独特资源', type: 'textarea', required: true, placeholder: '如：渠道、人脉、技术、资质…' },
       { key: '创始人愿景', type: 'textarea', required: true, placeholder: '您希望把企业做成什么样' },
       { key: '创始人决策风格', type: 'textarea', required: true, placeholder: '如：果断型、商量型…' },
@@ -60,8 +60,8 @@ export const DETAILED_SECTIONS: DetailedSection[] = [
     title: '第一部分：企业基本信息',
     questions: [
       '公司全称',
-      '成立时间',
-      '所属行业',
+      '成立时间（实际运营时间）',
+      '所属行业（服务/销售/生产/综合一体）',
       '主营业务',
       '企业性质（国企/民营/外资/合资）',
       '员工总数',
@@ -104,10 +104,10 @@ export const DETAILED_SECTIONS: DetailedSection[] = [
     title: '第五部分：人力资源',
     questions: [
       '核心管理层背景',
-      '关键岗位人才配置',
+      '关键岗位人才配比度',
       '员工满意度调查结果',
-      '培训与发展体系',
-      '绩效考核与激励制度',
+      '专业培训与发展体系是否完善',
+      '绩效考核与激励制度匹配度',
       '人才流失率及原因分析',
     ],
   },
@@ -126,8 +126,8 @@ export const DETAILED_SECTIONS: DetailedSection[] = [
     title: '第七部分：存在的问题与挑战',
     questions: [
       '当前最紧迫的三大问题',
-      '尝试过的解决方案及效果',
-      '内部资源与能力限制',
+      '尝试过的解决方案及效果如何',
+      '客户资源与员工能力匹配度',
       '外部环境带来的主要挑战',
       '期望咨询达成的具体目标',
       '其他需要说明的情况',
