@@ -33,10 +33,15 @@ export function hasPublishedAnalysis(p: ClientProjectExtra): boolean {
 
 /**
  * 客户端真实展示状态：
- * 项目主状态靠人工流转，可能滞后（报告已发布但主状态仍停在 analyzing/in_review），
- * 因此有已发布报告时统一按 published（已梳理）展示。
+ * 有「当前版本」指针时——指针所指版本已发布才显示「已梳理」（在审版本客户不可见）；
+ * 无指针时回退旧逻辑——有已发布报告即视为「已梳理」（项目主状态靠人工流转，可能滞后）。
  */
 export function clientDisplayStatus(p: ClientProjectMeta): string {
+  const currentId = p.current_analysis_id ?? null
+  if (currentId) {
+    const cur = (p.analyses ?? []).find((a) => a.id === currentId)
+    return cur && cur.status === 'published' ? 'published' : p.status
+  }
   if (p.status !== 'published' && hasPublishedAnalysis(p)) return 'published'
   return p.status
 }

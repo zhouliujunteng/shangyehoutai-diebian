@@ -66,10 +66,10 @@ export default function ProjectReplies() {
       const data = await gql<{ project_by_pk: ProjectFull | null }>(
         `query($id: bigint!) {
           project_by_pk(id: $id) {
-            id name remark status review_level created_at
+            id name remark status review_level current_analysis_id created_at
             owner { username }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
-            analyses(order_by: { id: desc }, limit: 1) { id version content internal_ref status current_stage project_id created_at }
+            analyses(order_by: { id: desc }) { id version content internal_ref status current_stage project_id created_at }
             questions(order_by: { id: desc }) {
               id content status attachments project_id created_at
               replies(order_by: { id: desc }, limit: 1) { id content status attachments current_stage question_id created_at }
@@ -103,11 +103,16 @@ export default function ProjectReplies() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  // 展示当前确认版本：有已发布版本优先展示已发布，否则最新一版
-  const latestAnalysis = useMemo(
-    () => project?.analyses?.find((a) => a.status === 'published') ?? project?.analyses?.[0] ?? null,
-    [project],
-  )
+  // 服务端展示以「当前版本」指针为准；无指针回退到最新已发布/最新版本
+  const latestAnalysis = useMemo(() => {
+    const list = project?.analyses ?? []
+    const curId = project?.current_analysis_id ?? null
+    if (curId) {
+      const cur = list.find((a) => a.id === curId)
+      if (cur) return cur
+    }
+    return list.find((a) => a.status === 'published') ?? list[0] ?? null
+  }, [project])
 
   if (loading) {
     return (

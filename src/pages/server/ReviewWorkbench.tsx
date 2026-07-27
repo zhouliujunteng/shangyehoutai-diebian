@@ -66,7 +66,7 @@ export default function ReviewWorkbench() {
           `query {
             analysis(order_by: { id: desc }, limit: 100) {
               id version status current_stage project_id created_at
-              project { id name }
+              project { id name current_analysis_id }
             }
           }`,
         )
@@ -88,12 +88,15 @@ export default function ReviewWorkbench() {
   const kw = search.trim().toLowerCase()
   const matchKw = (a: Analysis) => !kw || (a.project?.name ?? '').toLowerCase().includes(kw)
   const viewedScope = `server:${myName}`
-  // 「全部梳理报告」按项目去重：每个项目只显示一条（优先已发布版本，否则最新版），其余版本进入详情后切换查看
+  // 「全部梳理报告」按项目去重：优先「当前版本」指针所指版本，其次已发布，否则最新版；其余版本进入详情后切换查看
   const groupedAll = (() => {
     const map = new Map<number, Analysis>()
     for (const a of allList) {
       const cur = map.get(a.project_id)
-      if (!cur || (a.status === 'published' && cur.status !== 'published')) map.set(a.project_id, a)
+      const curId = a.project?.current_analysis_id ?? null
+      if (!cur) map.set(a.project_id, a)
+      else if (curId && a.id === curId) map.set(a.project_id, a)
+      else if (!curId && a.status === 'published' && cur.status !== 'published') map.set(a.project_id, a)
     }
     return [...map.values()]
   })()

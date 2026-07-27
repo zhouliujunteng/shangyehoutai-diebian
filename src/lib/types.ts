@@ -37,6 +37,8 @@ export interface Project {
   remark?: string | null
   status: ProjectStatus
   review_level: number | null
+  /** 当前展示版本指针：指向哪份梳理报告，全端以此为准（客户端仅在其已发布时展示） */
+  current_analysis_id?: number | null
   owner_id?: number | string
   created_at?: string
   owner?: { username: string } | null
@@ -83,7 +85,7 @@ export interface Analysis {
   current_stage: number
   project_id: number
   created_at?: string
-  project?: { id: number; name: string } | null
+  project?: { id: number; name: string; current_analysis_id?: number | null } | null
 }
 
 export interface ReviewAssignment {

@@ -20,7 +20,7 @@ import { toast } from 'sonner'
 import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2, GitCompareArrows } from 'lucide-react'
 
 interface AnalysisFull extends Analysis {
-  project?: { id: number; name: string; review_level: number | null; status: string } | null
+  project?: { id: number; name: string; review_level: number | null; status: string; current_analysis_id?: number | null } | null
 }
 
 interface VersionItem {
@@ -59,7 +59,7 @@ export default function ReviewDetail() {
         `query($id: bigint!) {
           analysis_by_pk(id: $id) {
             id version content internal_ref status current_stage project_id created_at
-            project { id name review_level status }
+            project { id name review_level status current_analysis_id }
           }
         }`,
         { id },
@@ -143,14 +143,15 @@ export default function ReviewDetail() {
     try {
       // 若内容有改动则一并保存
       await gql(
-        `mutation($aid: bigint!, $c: String!, $pid: bigint!, $rec: review_record_insert_input!) {
+        `mutation($aid: bigint!, $c: String!, $pid: bigint!, $cur: bigint!, $rec: review_record_insert_input!) {
           update_analysis_by_pk(pk_columns: { id: $aid }, _set: { content: $c, status: "published", current_stage: 1 }) { id }
-          update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "published" }) { id }
+          update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "published", current_analysis_id: $cur }) { id }
           insert_review_record_one(object: $rec) { id }
         }`,
         {
           aid: analysis.id,
           c: editContent,
+          cur: analysis.id,
           pid: analysis.project_id,
           rec: {
             project_id: analysis.project_id,
@@ -207,6 +208,15 @@ export default function ReviewDetail() {
           },
         },
       )
+      // 终审发布后：当前版本指针自动移到本版本，客户端随即可见
+      if (next.status === 'published') {
+        await gql(
+          `mutation($pid: bigint!, $cur: bigint!) {
+            update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $cur }) { id }
+          }`,
+          { pid: analysis.project_id, cur: analysis.id },
+        )
+      }
       await logOperation({
         projectId: analysis.project_id,
         operator: auth!.account.username,
@@ -272,16 +282,22 @@ export default function ReviewDetail() {
     }
   }
 
-  /** 设为当前展示版本：本版本置为已发布，其余已发布与在审版本全部置为已更新（避免一头已发布、一头仍在审的双头状态） */
+  /** 设为当前版本：移动「当前版本」指针，全端以此版本为准；历史版本恢复展示。
+   *  客户端仅在该版本已通过审核（已发布/曾发布的历史版本）时展示；在审版本客户暂不可见。 */
   const setCurrent = async () => {
     setActing('setCurrent')
     try {
+      // 历史版本（曾被作废）恢复为已发布；在审版本只移动指针，等审核通过自然生效
+      const restore = analysis.status === 'superseded'
       await gql(
-        `mutation($aid: bigint!, $pid: bigint!) {
-          update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published", current_stage: 1 }) { id }
-          update_analysis(where: { project_id: { _eq: $pid }, status: { _eq: "published" }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
-          update_analysis(where: { project_id: { _eq: $pid }, status: { _in: ["pending_setup", "pending_l3", "pending_l2", "pending_l1"] }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
-        }`,
+        restore
+          ? `mutation($aid: bigint!, $pid: bigint!) {
+              update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published" }) { id }
+              update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $aid }) { id }
+            }`
+          : `mutation($aid: bigint!, $pid: bigint!) {
+              update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $aid }) { id }
+            }`,
         { aid: analysis.id, pid: analysis.project_id },
       )
       await logOperation({
@@ -372,7 +388,14 @@ export default function ReviewDetail() {
             <SelectContent>
               {versions.map((v) => (
                 <SelectItem key={v.id} value={String(v.id)}>
-                  v{v.version}{v.status === 'published' ? ' · 当前' : v.status === 'superseded' ? ' · 历史' : ' · 在审'}
+                  v{v.version}
+                  {v.id === analysis.project?.current_analysis_id
+                    ? ' · 当前'
+                    : v.status === 'superseded'
+                      ? ' · 历史'
+                      : v.status === 'published'
+                        ? ' · 已发布'
+                        : ' · 在审'}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -380,7 +403,7 @@ export default function ReviewDetail() {
         )}
         {versions.length <= 1 && <span className="text-sm text-slate-500">v{analysis.version}</span>}
         <ReviewStatusBadge status={analysis.status} />
-        {isPrivileged && analysis.status === 'superseded' && (
+        {analysis.project?.current_analysis_id !== analysis.id && (
           <Button size="sm" variant="outline" disabled={acting !== null} onClick={setCurrent}>
             {acting === 'setCurrent' ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <History className="mr-1 h-4 w-4" />}
             设为当前版本

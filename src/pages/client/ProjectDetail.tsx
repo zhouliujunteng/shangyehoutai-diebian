@@ -59,7 +59,7 @@ export default function ProjectDetail() {
       const data = await gql<{ project_by_pk: ProjectFull | null }>(
         `query($id: bigint!) {
           project_by_pk(id: $id) {
-            id name remark status review_level created_at
+            id name remark status review_level current_analysis_id created_at
             collect_links(order_by: { id: desc }) { id token status expires_at project_id created_at }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage project_id created_at }
@@ -94,7 +94,11 @@ export default function ProjectDetail() {
 
   const link = project?.collect_links[0] ?? null
   const latestAnalysis = project?.analyses[0] ?? null
-  const publishedAnalysis = project?.analyses.find((a) => a.status === 'published') ?? null
+  // 客户端展示以「当前版本」指针为准：指针所指版本已发布才展示；无指针回退到最新已发布版本
+  const currentId = project?.current_analysis_id ?? null
+  const publishedAnalysis = currentId
+    ? (project?.analyses.find((a) => a.id === currentId && a.status === 'published') ?? null)
+    : (project?.analyses.find((a) => a.status === 'published') ?? null)
 
   if (loading) {
     return (

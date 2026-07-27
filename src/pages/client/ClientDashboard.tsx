@@ -95,7 +95,7 @@ export default function ClientDashboard() {
       const data = await gql<{ project: ClientProjectMeta[] }>(
         `query($uid: bigint!) {
           project(where: { owner_id: { _eq: $uid } }, order_by: { id: desc }) {
-            id name remark status review_level created_at
+            id name remark status review_level current_analysis_id created_at
             analyses(where: { status: { _eq: "published" } }, order_by: { id: desc }) {
               id status created_at
             }
