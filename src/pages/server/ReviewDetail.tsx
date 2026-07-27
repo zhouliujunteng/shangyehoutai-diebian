@@ -40,7 +40,6 @@ export default function ReviewDetail() {
   const [editContent, setEditContent] = useState('')
   const [acting, setActing] = useState<string | null>(null)
   // 局部修改
-  const [fragment, setFragment] = useState('')
   const [requirement, setRequirement] = useState('')
   const [partialLoading, setPartialLoading] = useState(false)
 
@@ -295,17 +294,16 @@ export default function ReviewDetail() {
     }
   }
 
-  /** 局部修改：AI 只改写指定片段并生成新版本 */
+  /** 局部修改：AI 按自然语言要求只重写指定部分并生成新版本 */
   const partialEdit = async () => {
-    if (!fragment.trim() || !requirement.trim()) {
-      toast.error('请贴入原文片段并填写修改要求')
+    if (!requirement.trim()) {
+      toast.error('请填写修改要求')
       return
     }
     setPartialLoading(true)
     try {
       const taskId = await createActionFlowTask(PARTIAL_EDIT_FLOW_ID, {
         报告ID: analysis.id,
-        片段: fragment.trim(),
         要求: requirement.trim(),
       })
       const output = await waitActionFlowResult(taskId, { timeoutMs: 300000 })
@@ -421,30 +419,33 @@ export default function ReviewDetail() {
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label>需要修改的原文片段（从上方报告中复制粘贴，需精确一致）</Label>
+                  <Label>修改要求（说清楚要改哪一部分、往什么方向改，越详细越好）</Label>
                   <Textarea
-                    rows={4}
-                    value={fragment}
-                    onChange={(e) => setFragment(e.target.value)}
-                    placeholder="粘贴报告中要修改的那段原文…"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>修改要求</Label>
-                  <Textarea
-                    rows={2}
+                    rows={3}
                     value={requirement}
                     onChange={(e) => setRequirement(e.target.value)}
-                    placeholder="如：把方向三改成先做社群老客裂变，不写投放；如：语气再直接一些…"
+                    placeholder="如：方向三有问题，彻底重新给一个方向；如：卡点二的分析不认同，重新分析并给具体动作…"
                   />
                 </div>
-                <Button
-                  variant="outline"
-                  className="border-violet-200 text-violet-600 hover:bg-violet-50"
-                  onClick={partialEdit}
-                >
-                  <Wand2 className="mr-1.5 h-4 w-4" /> 智能体局部修改
-                </Button>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    variant="outline"
+                    className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                    disabled={acting !== null}
+                    onClick={partialEdit}
+                  >
+                    <Wand2 className="mr-1.5 h-4 w-4" /> 智能体局部修改
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                    disabled={acting !== null}
+                    onClick={reanalyze}
+                  >
+                    {acting === 'reanalyze' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-1.5 h-4 w-4" />}
+                    退回，重新梳理
+                  </Button>
+                </div>
               </>
             )}
           </CardContent>
@@ -495,10 +496,6 @@ export default function ReviewDetail() {
                   直接发布（越级）
                 </Button>
               )}
-              <Button variant="outline" className="border-orange-300 text-orange-700 hover:bg-orange-50" disabled={acting !== null} onClick={reanalyze}>
-                {acting === 'reanalyze' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-1.5 h-4 w-4" />}
-                退回，重新梳理
-              </Button>
             </div>
           </CardContent>
         </Card>

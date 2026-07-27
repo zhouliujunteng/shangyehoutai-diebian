@@ -88,8 +88,17 @@ export default function ReviewWorkbench() {
   const kw = search.trim().toLowerCase()
   const matchKw = (a: Analysis) => !kw || (a.project?.name ?? '').toLowerCase().includes(kw)
   const viewedScope = `server:${myName}`
+  // 「全部梳理报告」按项目去重：每个项目只显示一条（优先已发布版本，否则最新版），其余版本进入详情后切换查看
+  const groupedAll = (() => {
+    const map = new Map<number, Analysis>()
+    for (const a of allList) {
+      const cur = map.get(a.project_id)
+      if (!cur || (a.status === 'published' && cur.status !== 'published')) map.set(a.project_id, a)
+    }
+    return [...map.values()]
+  })()
   // 默认排序：先按审核状态分类分组，组内按提交时间倒序（先更新的在前面）
-  const shownList = (tab === 'mine' ? visibleList : allList)
+  const shownList = (tab === 'mine' ? visibleList : groupedAll)
     .filter(matchKw)
     .sort((a, b) => {
       const g = groupIndex(REVIEW_STATUS_GROUP_ORDER, a.status) - groupIndex(REVIEW_STATUS_GROUP_ORDER, b.status)
