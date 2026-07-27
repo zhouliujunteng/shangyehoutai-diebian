@@ -272,7 +272,7 @@ export default function ReviewDetail() {
     }
   }
 
-  /** 设为当前展示版本：本版本置为已发布，其余已发布版本置为已更新 */
+  /** 设为当前展示版本：本版本置为已发布，其余已发布与在审版本全部置为已更新（避免一头已发布、一头仍在审的双头状态） */
   const setCurrent = async () => {
     setActing('setCurrent')
     try {
@@ -280,6 +280,7 @@ export default function ReviewDetail() {
         `mutation($aid: bigint!, $pid: bigint!) {
           update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published", current_stage: 1 }) { id }
           update_analysis(where: { project_id: { _eq: $pid }, status: { _eq: "published" }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
+          update_analysis(where: { project_id: { _eq: $pid }, status: { _in: ["pending_setup", "pending_l3", "pending_l2", "pending_l1"] }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
         }`,
         { aid: analysis.id, pid: analysis.project_id },
       )
