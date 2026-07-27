@@ -218,6 +218,10 @@ export default function ProjectsOverview() {
         </div>
       </div>
 
+      <p className="rounded-lg bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+        当前项目已开启自动分配：新提交的方案默认一级审核，并按轮询自动分配给 chengsiqi、Orouning 审核。
+      </p>
+
       {loading ? (
         <Card>
           <CardContent className="flex justify-center py-16 text-slate-400">

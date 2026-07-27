@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
 import MDEditor from '@uiw/react-md-editor'
@@ -6,6 +6,7 @@ import { gql, logOperation, ANALYZE_FLOW_ID, PARTIAL_EDIT_FLOW_ID, createActionF
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, formatTime } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
+import { diffText } from '@/lib/textDiff'
 import type { Analysis, Submission } from '@/lib/types'
 import AnswersView from '@/components/AnswersView'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
@@ -16,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2 } from 'lucide-react'
+import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2, GitCompareArrows } from 'lucide-react'
 
 interface AnalysisFull extends Analysis {
   project?: { id: number; name: string; review_level: number | null; status: string } | null
@@ -42,6 +43,10 @@ export default function ReviewDetail() {
   // 局部修改
   const [requirement, setRequirement] = useState('')
   const [partialLoading, setPartialLoading] = useState(false)
+  // 版本对比
+  const [compareOn, setCompareOn] = useState(false)
+  const [compareWithId, setCompareWithId] = useState('')
+  const [compareContent, setCompareContent] = useState<string | null>(null)
 
   const myLevel = myReviewLevel(auth?.account)
   // 超管与一级审核员：任意审核节点都可修改内容、重新梳理、通过、直接发布
@@ -326,6 +331,30 @@ export default function ReviewDetail() {
     }
   }
 
+  /** 开启/切换版本对比：默认对比上一个版本 */
+  const toggleCompare = async (targetId?: string) => {
+    const currentIdx = versions.findIndex((v) => v.id === analysis.id)
+    const defaultTarget = versions[currentIdx + 1] ?? versions.find((v) => v.id !== analysis.id)
+    const tid = targetId || compareWithId || (defaultTarget ? String(defaultTarget.id) : '')
+    if (!tid) {
+      toast.error('没有可对比的历史版本')
+      return
+    }
+    setCompareWithId(tid)
+    setCompareOn(true)
+    setCompareContent(null)
+    try {
+      const data = await gql<{ analysis_by_pk: { content: string } | null }>(
+        `query($id: bigint!) { analysis_by_pk(id: $id) { content } }`,
+        { id: Number(tid) },
+      )
+      setCompareContent(data.analysis_by_pk?.content ?? '')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '加载对比版本失败')
+      setCompareOn(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -367,13 +396,56 @@ export default function ReviewDetail() {
         <TabsContent value="analysis" className="pt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">梳理内容 · v{analysis.version}</CardTitle>
-              <p className="text-xs text-slate-400">梳理时间 {formatTime(analysis.created_at)}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">梳理内容 · v{analysis.version}</CardTitle>
+                  <p className="text-xs text-slate-400">梳理时间 {formatTime(analysis.created_at)}</p>
+                </div>
+                {versions.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    {compareOn && (
+                      <Select value={compareWithId} onValueChange={(v) => toggleCompare(v)}>
+                        <SelectTrigger className="h-8 w-32">
+                          <SelectValue placeholder="对比版本" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {versions
+                            .filter((v) => v.id !== analysis.id)
+                            .map((v) => (
+                              <SelectItem key={v.id} value={String(v.id)}>
+                                对比 v{v.version}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={compareOn ? 'default' : 'outline'}
+                      className={compareOn ? 'bg-slate-900 hover:bg-slate-800' : ''}
+                      onClick={() => (compareOn ? setCompareOn(false) : toggleCompare())}
+                    >
+                      <GitCompareArrows className="mr-1 h-4 w-4" />
+                      {compareOn ? '关闭对比' : '对比'}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="markdown-body rounded-lg border border-slate-100 bg-slate-50/50 p-5">
-                <ReactMarkdown>{analysis.content}</ReactMarkdown>
-              </div>
+              {compareOn ? (
+                compareContent === null ? (
+                  <div className="flex justify-center py-10 text-slate-400">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载对比版本…
+                  </div>
+                ) : (
+                  <DiffView oldText={compareContent} newText={analysis.content} />
+                )
+              ) : (
+                <div className="markdown-body rounded-lg border border-slate-100 bg-slate-50/50 p-5">
+                  <ReactMarkdown>{analysis.content}</ReactMarkdown>
+                </div>
+              )}
             </CardContent>
           </Card>
           {analysis.internal_ref && (
@@ -528,6 +600,41 @@ function PartialEditPanel() {
         <p className="max-w-sm text-center text-xs leading-5 text-slate-400">
           仅改写你指定的片段，其余内容保持不变，完成后自动生成新版本
         </p>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- 版本对比视图 ---------------- */
+
+function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
+  const parts = useMemo(() => diffText(oldText, newText), [oldText, newText])
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-5">
+      <p className="mb-3 flex flex-wrap gap-4 text-xs text-slate-400">
+        <span>
+          <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-green-200 align-middle" />
+          绿色下划线 = 当前版本新增
+        </span>
+        <span>
+          <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-red-200 align-middle" />
+          红色删除线 = 当前版本删除
+        </span>
+      </p>
+      <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">
+        {parts.map((p, i) =>
+          p.type === 'del' ? (
+            <span key={i} className="bg-red-100 text-red-700 line-through decoration-red-400">
+              {p.text}
+            </span>
+          ) : p.type === 'ins' ? (
+            <span key={i} className="bg-green-100 text-green-800 underline decoration-green-500">
+              {p.text}
+            </span>
+          ) : (
+            <span key={i}>{p.text}</span>
+          ),
+        )}
       </div>
     </div>
   )
