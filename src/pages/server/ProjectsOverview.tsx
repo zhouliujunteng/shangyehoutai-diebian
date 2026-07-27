@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Loader2, Settings2, Plus, Trash2, Search, LayoutGrid, List } from 'lucide-react'
+import { Loader2, Settings2, Plus, Trash2, Search, LayoutGrid, List, RefreshCw } from 'lucide-react'
 
 interface ProjectRow extends Project, ServerProjectExtra {
   owner?: { username: string } | null
@@ -170,6 +170,9 @@ export default function ProjectsOverview() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold text-slate-900">项目总览（{visibleProjects.length}）</h1>
         <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={load} title="刷新">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
           <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input

@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2, GitCompareArrows, Undo2 } from 'lucide-react'
+import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2, GitCompareArrows, Undo2, RefreshCw } from 'lucide-react'
 
 interface AnalysisFull extends Analysis {
   project?: { id: number; name: string; review_level: number | null; status: string; current_analysis_id?: number | null } | null
@@ -289,7 +289,8 @@ export default function ReviewDetail() {
     }
   }
 
-  /** 设为当前版本：移动「当前版本」指针，全端以此版本为准；历史版本恢复展示。
+  /** 设为当前版本：移动「当前版本」指针，全端以此版本为准；历史版本恢复展示；
+   *  其他在审版本一律作废，保证全账号全端只有一个生效版本。
    *  客户端仅在该版本已通过审核（已发布/曾发布的历史版本）时展示；在审版本客户暂不可见。 */
   const setCurrent = async () => {
     setActing('setCurrent')
@@ -301,9 +302,11 @@ export default function ReviewDetail() {
           ? `mutation($aid: bigint!, $pid: bigint!) {
               update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published" }) { id }
               update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $aid }) { id }
+              update_analysis(where: { project_id: { _eq: $pid }, status: { _in: ["pending_setup", "pending_l3", "pending_l2", "pending_l1"] }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
             }`
           : `mutation($aid: bigint!, $pid: bigint!) {
               update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $aid }) { id }
+              update_analysis(where: { project_id: { _eq: $pid }, status: { _in: ["pending_setup", "pending_l3", "pending_l2", "pending_l1"] }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
             }`,
         { aid: analysis.id, pid: analysis.project_id },
       )
@@ -438,6 +441,9 @@ export default function ReviewDetail() {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate('/server/review')}>
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
+        </Button>
+        <Button variant="ghost" size="sm" onClick={load} title="刷新">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
         <h1 className="text-xl font-bold text-slate-900">{analysis.project?.name ?? `项目 #${analysis.project_id}`}</h1>
         {/* 版本切换：随时查看/切换到任意版本 */}

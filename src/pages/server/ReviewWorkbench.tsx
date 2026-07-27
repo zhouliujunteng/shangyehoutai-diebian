@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Loader2, ArrowRight, Search } from 'lucide-react'
+import { Loader2, ArrowRight, Search, RefreshCw } from 'lucide-react'
 
 export default function ReviewWorkbench() {
   const { auth } = useAuth()
@@ -28,55 +28,61 @@ export default function ReviewWorkbench() {
   const [allList, setAllList] = useState<Analysis[]>([])
   const [search, setSearch] = useState('')
 
-  useEffect(() => {
-    ;(async () => {
-      setLoading(true)
-      try {
-        const data = await gql<{ analysis: Analysis[]; review_assignment: { project_id: number; level: number; reviewer: string }[] }>(
-          `query($st: String!) {
-            analysis(where: { status: { _eq: $st } }, order_by: { id: desc }) {
-              id version status current_stage project_id created_at
-              project { id name }
-            }
-            review_assignment { project_id level reviewer }
-          }`,
-          { st: pendingStatus },
-        )
-        setList(data.analysis)
-        const map: Record<number, Record<number, string>> = {}
-        for (const a of data.review_assignment) {
-          ;(map[a.project_id] ??= {})[a.level] = a.reviewer
-        }
-        setAssignMap(map)
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : '加载失败')
-      } finally {
-        setLoading(false)
+  const loadMine = async () => {
+    setLoading(true)
+    try {
+      const data = await gql<{ analysis: Analysis[]; review_assignment: { project_id: number; level: number; reviewer: string }[] }>(
+        `query($st: String!) {
+          analysis(where: { status: { _eq: $st } }, order_by: { id: desc }) {
+            id version status current_stage project_id created_at
+            project { id name }
+          }
+          review_assignment { project_id level reviewer }
+        }`,
+        { st: pendingStatus },
+      )
+      setList(data.analysis)
+      const map: Record<number, Record<number, string>> = {}
+      for (const a of data.review_assignment) {
+        ;(map[a.project_id] ??= {})[a.level] = a.reviewer
       }
-    })()
+      setAssignMap(map)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadAll = async () => {
+    setLoading(true)
+    try {
+      const data = await gql<{ analysis: Analysis[] }>(
+        `query {
+          analysis(order_by: { id: desc }, limit: 100) {
+            id version status current_stage project_id created_at
+            project { id name current_analysis_id }
+          }
+        }`,
+      )
+      setAllList(data.analysis)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMine()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingStatus])
 
   // 「全部梳理报告」：超管/一级审核员可查看任意状态的报告（只读入口）
   useEffect(() => {
     if (tab !== 'all') return
-    ;(async () => {
-      setLoading(true)
-      try {
-        const data = await gql<{ analysis: Analysis[] }>(
-          `query {
-            analysis(order_by: { id: desc }, limit: 100) {
-              id version status current_stage project_id created_at
-              project { id name current_analysis_id }
-            }
-          }`,
-        )
-        setAllList(data.analysis)
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : '加载失败')
-      } finally {
-        setLoading(false)
-      }
-    })()
+    loadAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
   // 某级别已指派审核人时，只有被指派人能看到该任务；未指派则同级所有人可见
@@ -180,9 +186,14 @@ export default function ReviewWorkbench() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-slate-900">审核工作台</h1>
-        <span className="text-sm text-slate-500">
-          我的级别：{level} 级{auth?.account.account_type === 'super_admin' ? '（超管·终审）' : ''}
-        </span>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => (tab === 'mine' ? loadMine() : loadAll())} title="刷新">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+          <span className="text-sm text-slate-500">
+            我的级别：{level} 级{auth?.account.account_type === 'super_admin' ? '（超管·终审）' : ''}
+          </span>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button

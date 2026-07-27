@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
-import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List } from 'lucide-react'
+import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw } from 'lucide-react'
 
 /** 分组排序：先按状态分类（流程顺序），同状态内按更新时间倒序（先更新的在前面） */
 const STATUS_GROUP_ORDER = [
@@ -191,7 +191,11 @@ export default function ClientDashboard() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-900">我的项目</h2>
-        <Button
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={load} title="刷新">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+          <Button
           className="bg-slate-900 hover:bg-slate-800"
           disabled={quotaFull}
           onClick={() => setDialogOpen(true)}
@@ -199,6 +203,7 @@ export default function ClientDashboard() {
         >
           <FolderPlus className="mr-1.5 h-4 w-4" /> 新建项目
         </Button>
+        </div>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">

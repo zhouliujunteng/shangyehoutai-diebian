@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, Loader2, Save, Send, Sparkles } from 'lucide-react'
+import { ArrowLeft, Check, Loader2, Save, Send, Sparkles, RefreshCw } from 'lucide-react'
 
 interface ProjectFull extends Project {
   owner?: { username: string } | null
@@ -240,6 +240,9 @@ export default function ProjectReplies() {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate('/server/replies')}>
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
+        </Button>
+        <Button variant="ghost" size="sm" onClick={load} title="刷新">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
         <h1 className="text-xl font-bold text-slate-900">{projectDisplayName(project)}</h1>
         <ProjectStatusBadge status={project.status} />

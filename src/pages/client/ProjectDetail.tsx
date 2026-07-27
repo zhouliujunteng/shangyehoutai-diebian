@@ -119,6 +119,9 @@ export default function ProjectDetail() {
         <Button variant="ghost" size="sm" onClick={() => navigate('/client')}>
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
+        <Button variant="ghost" size="sm" onClick={refresh} title="刷新">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
         <h1 className="text-xl font-bold text-slate-900">{projectDisplayName(project)}</h1>
         <ProjectStatusBadge status={clientDisplayStatus(project)} />
       </div>

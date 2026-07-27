@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Loader2, ArrowRight, Search } from 'lucide-react'
+import { Loader2, ArrowRight, Search, RefreshCw } from 'lucide-react'
 
 interface ProjectGroup {
   project_id: number
@@ -41,56 +41,59 @@ export default function RepliesList() {
     .filter((g) => !kw || g.name.toLowerCase().includes(kw))
     .sort((a, b) => new Date(b.latestTime ?? 0).getTime() - new Date(a.latestTime ?? 0).getTime())
 
-  useEffect(() => {
-    ;(async () => {
-      setLoading(true)
-      try {
-        const data = await gql<{ question: Question[] }>(
-          `query {
-            question(order_by: { id: desc }) {
-              id content status project_id created_at
-              project { id name }
-              replies(order_by: { id: desc }, limit: 1) { id content status current_stage question_id created_at }
-            }
-          }`,
-        )
-        const needMe = (q: Question): boolean => {
-          const r = q.replies?.[0]
-          if (q.status === 'replied') return false
-          if (!r) return true // 还没有回复草稿，任何服务端人员可起草
-          return r.status === myPending
-        }
-        const map = new Map<number, ProjectGroup>()
-        for (const q of data.question) {
-          const pid = q.project_id
-          if (!map.has(pid)) {
-            map.set(pid, {
-              project_id: pid,
-              name: q.project?.name ?? `项目 #${pid}`,
-              questions: [],
-              needMeCount: 0,
-              latestTime: q.created_at,
-              latestReplyStatus: null,
-            })
+  const load = async () => {
+    setLoading(true)
+    try {
+      const data = await gql<{ question: Question[] }>(
+        `query {
+          question(order_by: { id: desc }) {
+            id content status project_id created_at
+            project { id name }
+            replies(order_by: { id: desc }, limit: 1) { id content status current_stage question_id created_at }
           }
-          const g = map.get(pid)!
-          g.questions.push(q)
-          if (needMe(q)) g.needMeCount += 1
-          const r = q.replies?.[0]
-          if (r && !g.latestReplyStatus) g.latestReplyStatus = r.status
-          // 最新时间取提问与回复中的较新者
-          const rTs = r?.created_at ? new Date(r.created_at).getTime() : 0
-          const qTs = q.created_at ? new Date(q.created_at).getTime() : 0
-          const latest = Math.max(rTs, qTs)
-          if (latest > new Date(g.latestTime ?? 0).getTime()) g.latestTime = new Date(latest).toISOString()
-        }
-        setGroups([...map.values()])
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : '加载失败')
-      } finally {
-        setLoading(false)
+        }`,
+      )
+      const needMe = (q: Question): boolean => {
+        const r = q.replies?.[0]
+        if (q.status === 'replied') return false
+        if (!r) return true // 还没有回复草稿，任何服务端人员可起草
+        return r.status === myPending
       }
-    })()
+      const map = new Map<number, ProjectGroup>()
+      for (const q of data.question) {
+        const pid = q.project_id
+        if (!map.has(pid)) {
+          map.set(pid, {
+            project_id: pid,
+            name: q.project?.name ?? `项目 #${pid}`,
+            questions: [],
+            needMeCount: 0,
+            latestTime: q.created_at,
+            latestReplyStatus: null,
+          })
+        }
+        const g = map.get(pid)!
+        g.questions.push(q)
+        if (needMe(q)) g.needMeCount += 1
+        const r = q.replies?.[0]
+        if (r && !g.latestReplyStatus) g.latestReplyStatus = r.status
+        // 最新时间取提问与回复中的较新者
+        const rTs = r?.created_at ? new Date(r.created_at).getTime() : 0
+        const qTs = q.created_at ? new Date(q.created_at).getTime() : 0
+        const latest = Math.max(rTs, qTs)
+        if (latest > new Date(g.latestTime ?? 0).getTime()) g.latestTime = new Date(latest).toISOString()
+      }
+      setGroups([...map.values()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myPending])
 
   /* 手机端卡片：竖排展示，无需横向滑动 */
@@ -134,6 +137,9 @@ export default function RepliesList() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-slate-900">回复处理（{visibleGroups.length} 个项目）</h1>
         <div className="flex flex-wrap items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={load} title="刷新">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
           <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
