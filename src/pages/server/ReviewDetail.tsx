@@ -118,25 +118,60 @@ export default function ReviewDetail() {
   const myTurn = isPrivileged ? isPending : analysis.status === pendingStatusForLevel(myLevel)
   const isFinal = analysis.current_stage === 1
 
-  /** 超管/一级：直接修改报告内容 */
+  /** 超管/一级：修改报告内容——生成新版本（旧版本留痕，可版本比对；指针跟随新版本） */
   const saveContent = async () => {
+    if (editContent.trim() === analysis.content.trim()) {
+      toast.info('内容没有变化')
+      return
+    }
     setActing('save')
     try {
-      await gql(
-        `mutation($aid: bigint!, $c: String!) {
-          update_analysis_by_pk(pk_columns: { id: $aid }, _set: { content: $c }) { id }
+      // 1. 最新版本号
+      const vRes = await gql<{ analysis: { version: number }[] }>(
+        `query($pid: bigint!) {
+          analysis(where: { project_id: { _eq: $pid } }, order_by: { version: desc }, limit: 1) { version }
         }`,
-        { aid: analysis.id, c: editContent },
+        { pid: analysis.project_id },
       )
+      const nextV = (vRes.analysis[0]?.version ?? 0) + 1
+      const ref = `${analysis.internal_ref ?? ''}${analysis.internal_ref ? '\n' : ''}- 手动编辑（v${nextV}）`
+      // 2. 插入新版本（沿用原审核节点），旧版本置为已更新
+      const ins = await gql<{ insert_analysis_one: { id: number } }>(
+        `mutation($obj: analysis_insert_input!, $oid: bigint!) {
+          insert_analysis_one(object: $obj) { id }
+          update_analysis_by_pk(pk_columns: { id: $oid }, _set: { status: "superseded" }) { id }
+        }`,
+        {
+          obj: {
+            project_id: analysis.project_id,
+            version: nextV,
+            content: editContent,
+            internal_ref: ref,
+            status: analysis.status,
+            current_stage: analysis.current_stage,
+          },
+          oid: analysis.id,
+        },
+      )
+      const newId = ins.insert_analysis_one.id
+      // 3. 当前版本指针跟随新版本
+      if (analysis.project?.current_analysis_id === analysis.id) {
+        await gql(
+          `mutation($pid: bigint!, $cur: bigint!) {
+            update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $cur }) { id }
+          }`,
+          { pid: analysis.project_id, cur: newId },
+        )
+      }
       await logOperation({
         projectId: analysis.project_id,
         operator: auth!.account.username,
-        action: `修改梳理报告内容（v${analysis.version}）`,
+        action: `手动编辑梳理报告，生成 v${nextV}（v${analysis.version} 已留痕）`,
         targetType: 'analysis',
-        targetId: analysis.id,
+        targetId: newId,
       })
-      toast.success('报告内容已保存')
-      load()
+      toast.success(`已保存并生成 v${nextV}，可与 v${analysis.version} 对比修改点`)
+      navigate(`/server/review/${newId}`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败')
     } finally {
