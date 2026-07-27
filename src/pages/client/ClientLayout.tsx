@@ -3,6 +3,7 @@ import { useAuth } from '@/lib/auth'
 import { accountDisplayName } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Building2, LogOut, Settings } from 'lucide-react'
+import { APP_VERSION } from '@/lib/appVersion'
 
 export default function ClientLayout() {
   const { auth, logout } = useAuth()
@@ -16,6 +17,7 @@ export default function ClientLayout() {
           <button className="font-semibold" onClick={() => navigate('/client')}>
             项目后台 · 客户中心
           </button>
+          <span className="text-xs text-slate-500">{APP_VERSION}</span>
           <div className="ml-auto flex items-center gap-3">
             <button
               className="text-sm text-slate-300 transition-colors hover:text-white"

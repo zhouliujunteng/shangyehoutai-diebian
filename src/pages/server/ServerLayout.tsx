@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Building2, LogOut, LayoutDashboard, ClipboardCheck, MessageSquareReply, Users, Settings } from 'lucide-react'
 import { accountDisplayName } from '@/lib/types'
+import { APP_VERSION } from '@/lib/appVersion'
 
 export default function ServerLayout() {
   const { auth, logout } = useAuth()
@@ -30,6 +31,7 @@ export default function ServerLayout() {
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3">
           <Building2 className="h-5 w-5 shrink-0" />
           <span className="font-semibold whitespace-nowrap">项目后台 · 服务端</span>
+          <span className="text-xs text-slate-500">{APP_VERSION}</span>
           <div className="ml-auto flex items-center gap-2">
             <button
               className="hidden text-sm text-slate-300 transition-colors hover:text-white sm:inline"
