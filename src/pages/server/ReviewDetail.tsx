@@ -7,7 +7,7 @@ import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, formatTime } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
 import { diffText } from '@/lib/textDiff'
-import type { Analysis, Submission } from '@/lib/types'
+import type { Analysis, ReviewStatus, Submission } from '@/lib/types'
 import AnswersView from '@/components/AnswersView'
 import { ReviewStatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2, GitCompareArrows } from 'lucide-react'
+import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2, GitCompareArrows, Undo2 } from 'lucide-react'
 
 interface AnalysisFull extends Analysis {
   project?: { id: number; name: string; review_level: number | null; status: string; current_analysis_id?: number | null } | null
@@ -27,6 +27,13 @@ interface VersionItem {
   id: number
   version: number
   status: string
+}
+
+/** 撤销审核的回退路径：发布→一级，一级→二级，二级→三级（三级为起点不可再退） */
+const REVERT_MAP: Record<string, { status: ReviewStatus; current_stage: number; label: string }> = {
+  published: { status: 'pending_l1', current_stage: 1, label: '撤回发布，回到一级审核' },
+  pending_l1: { status: 'pending_l2', current_stage: 2, label: '撤销，退回二级审核' },
+  pending_l2: { status: 'pending_l3', current_stage: 3, label: '撤销，退回三级审核' },
 }
 
 export default function ReviewDetail() {
@@ -372,6 +379,60 @@ export default function ReviewDetail() {
     }
   }
 
+  /** 撤销审核：回退到上一级审核状态（仅超管/一级审核员） */
+  const revert = async () => {
+    const prev = REVERT_MAP[analysis.status]
+    if (!prev) return
+    setActing('revert')
+    try {
+      await gql(
+        `mutation($aid: bigint!, $st: String!, $stage: bigint!) {
+          update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: $st, current_stage: $stage }) { id }
+        }`,
+        { aid: analysis.id, st: prev.status, stage: prev.current_stage },
+      )
+      // 撤回发布时项目主状态回到审核中；客户端因「指针+已发布门槛」自动不再展示
+      if (analysis.status === 'published') {
+        await gql(
+          `mutation($pid: bigint!) {
+            update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "in_review" }) { id }
+          }`,
+          { pid: analysis.project_id },
+        )
+      }
+      await gql(
+        `mutation($rec: review_record_insert_input!) {
+          insert_review_record_one(object: $rec) { id }
+        }`,
+        {
+          rec: {
+            project_id: analysis.project_id,
+            target_type: 'analysis',
+            target_id: String(analysis.id),
+            level: myLevel,
+            reviewer: auth!.account.username,
+            decision: 'returned',
+            comment: comment.trim() || null,
+          },
+        },
+      )
+      await logOperation({
+        projectId: analysis.project_id,
+        operator: auth!.account.username,
+        action: `撤销审核：v${analysis.version} ${prev.label}`,
+        targetType: 'analysis',
+        targetId: analysis.id,
+        detail: { from: analysis.status, to: prev.status, comment: comment.trim() || undefined },
+      })
+      toast.success('已撤销，回到上一级审核状态')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '撤销失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -548,6 +609,46 @@ export default function ReviewDetail() {
         </Card>
       )}
 
+      {isPrivileged && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">内容修改与撤销（一级审核 · 任意版本可操作）</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>报告内容（可视化编辑：工具栏可加粗/标题/列表，右侧实时预览）</Label>
+              <div data-color-mode="light">
+                <MDEditor
+                  value={editContent}
+                  onChange={(v) => setEditContent(v ?? '')}
+                  height={420}
+                  preview="live"
+                  visibleDragbar={false}
+                  textareaProps={{ placeholder: '编辑报告内容…' }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" disabled={acting !== null} onClick={saveContent}>
+                  {acting === 'save' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                  保存修改
+                </Button>
+                {REVERT_MAP[analysis.status] && (
+                  <Button
+                    variant="outline"
+                    className="border-red-200 text-red-600 hover:bg-red-50"
+                    disabled={acting !== null}
+                    onClick={revert}
+                  >
+                    {acting === 'revert' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Undo2 className="mr-1.5 h-4 w-4" />}
+                    {REVERT_MAP[analysis.status].label}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {myTurn && (
         <Card>
           <CardHeader className="pb-2">
@@ -556,27 +657,6 @@ export default function ReviewDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {isPrivileged && (
-              <div className="space-y-2">
-                <Label>报告内容（可视化编辑：工具栏可加粗/标题/列表，右侧实时预览）</Label>
-                <div data-color-mode="light">
-                  <MDEditor
-                    value={editContent}
-                    onChange={(v) => setEditContent(v ?? '')}
-                    height={420}
-                    preview="live"
-                    visibleDragbar={false}
-                    textareaProps={{ placeholder: '编辑报告内容…' }}
-                  />
-                </div>
-                <div>
-                  <Button variant="outline" disabled={acting !== null} onClick={saveContent}>
-                    {acting === 'save' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
-                    保存修改
-                  </Button>
-                </div>
-              </div>
-            )}
             <div className="space-y-2">
               <Label>审核意见{isFinal || isPrivileged ? '' : '（退回时必填）'}</Label>
               <Textarea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="填写审核意见…" />
