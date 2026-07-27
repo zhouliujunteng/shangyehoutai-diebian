@@ -102,9 +102,10 @@ export default function ReviewWorkbench() {
   }
 
   useEffect(() => {
-    // 进页面即加载「待我审核」与「我负责的」（保证标签计数立即正确）
+    // 进页面即加载全部三个列表（保证三个标签计数立即正确）
     loadMine()
     loadAssigned()
+    loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingStatus])
 
