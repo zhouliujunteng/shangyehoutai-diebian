@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
 import MDEditor from '@uiw/react-md-editor'
-import { gql, logOperation, ANALYZE_FLOW_ID } from '@/lib/graphql'
+import { gql, logOperation, ANALYZE_FLOW_ID, PARTIAL_EDIT_FLOW_ID, createActionFlowTask, waitActionFlowResult } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, formatTime } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
@@ -14,11 +14,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, RotateCcw, Loader2 } from 'lucide-react'
+import { ArrowLeft, Check, RotateCcw, Loader2, History, Wand2 } from 'lucide-react'
 
 interface AnalysisFull extends Analysis {
   project?: { id: number; name: string; review_level: number | null; status: string } | null
+}
+
+interface VersionItem {
+  id: number
+  version: number
+  status: string
 }
 
 export default function ReviewDetail() {
@@ -27,10 +34,15 @@ export default function ReviewDetail() {
   const { auth } = useAuth()
   const [analysis, setAnalysis] = useState<AnalysisFull | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [versions, setVersions] = useState<VersionItem[]>([])
   const [loading, setLoading] = useState(true)
   const [comment, setComment] = useState('')
   const [editContent, setEditContent] = useState('')
   const [acting, setActing] = useState<string | null>(null)
+  // 局部修改
+  const [fragment, setFragment] = useState('')
+  const [requirement, setRequirement] = useState('')
+  const [partialLoading, setPartialLoading] = useState(false)
 
   const myLevel = myReviewLevel(auth?.account)
   // 超管与一级审核员：任意审核节点都可修改内容、重新梳理、通过、直接发布
@@ -53,15 +65,19 @@ export default function ReviewDetail() {
         // 进入审核详情即视为已读，清除项目总览的更新红点
         markProjectViewed(data.analysis_by_pk.project_id, `server:${auth?.account.username ?? ''}`)
         setEditContent(data.analysis_by_pk.content)
-        const sub = await gql<{ submission: Submission[] }>(
+        const sub = await gql<{ submission: Submission[]; analysis: VersionItem[] }>(
           `query($pid: bigint!) {
             submission(where: { project_id: { _eq: $pid } }, order_by: { id: desc }) {
               id form_type filler_name filler_contact answers is_supplement project_id created_at
+            }
+            analysis(where: { project_id: { _eq: $pid } }, order_by: { version: desc }) {
+              id version status
             }
           }`,
           { pid: data.analysis_by_pk.project_id },
         )
         setSubmissions(sub.submission)
+        setVersions(sub.analysis)
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
@@ -252,6 +268,66 @@ export default function ReviewDetail() {
     }
   }
 
+  /** 设为当前展示版本：本版本置为已发布，其余已发布版本置为已更新 */
+  const setCurrent = async () => {
+    setActing('setCurrent')
+    try {
+      await gql(
+        `mutation($aid: bigint!, $pid: bigint!) {
+          update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published", current_stage: 1 }) { id }
+          update_analysis(where: { project_id: { _eq: $pid }, status: { _eq: "published" }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
+        }`,
+        { aid: analysis.id, pid: analysis.project_id },
+      )
+      await logOperation({
+        projectId: analysis.project_id,
+        operator: auth!.account.username,
+        action: `切换展示版本为 v${analysis.version}`,
+        targetType: 'analysis',
+        targetId: analysis.id,
+      })
+      toast.success(`已切换为 v${analysis.version}，服务端与客户端均展示该版本`)
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '操作失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  /** 局部修改：AI 只改写指定片段并生成新版本 */
+  const partialEdit = async () => {
+    if (!fragment.trim() || !requirement.trim()) {
+      toast.error('请贴入原文片段并填写修改要求')
+      return
+    }
+    setPartialLoading(true)
+    try {
+      const taskId = await createActionFlowTask(PARTIAL_EDIT_FLOW_ID, {
+        报告ID: analysis.id,
+        片段: fragment.trim(),
+        要求: requirement.trim(),
+      })
+      const output = await waitActionFlowResult(taskId, { timeoutMs: 300000 })
+      const newId = Number(output['新版本ID'])
+      await logOperation({
+        projectId: analysis.project_id,
+        operator: auth!.account.username,
+        action: `局部修改 v${analysis.version}，生成新版本`,
+        targetType: 'analysis',
+        targetId: analysis.id,
+        detail: { 修改要求: requirement.trim().slice(0, 100) },
+      })
+      toast.success('局部修改完成，已生成新版本')
+      if (newId) navigate(`/server/review/${newId}`)
+      else load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '局部修改失败，请重试')
+    } finally {
+      setPartialLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -259,8 +335,29 @@ export default function ReviewDetail() {
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
         <h1 className="text-xl font-bold text-slate-900">{analysis.project?.name ?? `项目 #${analysis.project_id}`}</h1>
-        <span className="text-sm text-slate-500">v{analysis.version}</span>
+        {/* 版本切换：随时查看/切换到任意版本 */}
+        {versions.length > 1 && (
+          <Select value={String(analysis.id)} onValueChange={(v) => navigate(`/server/review/${v}`)}>
+            <SelectTrigger className="h-8 w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {versions.map((v) => (
+                <SelectItem key={v.id} value={String(v.id)}>
+                  v{v.version}{v.status === 'published' ? ' · 当前' : v.status === 'superseded' ? ' · 历史' : ' · 在审'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {versions.length <= 1 && <span className="text-sm text-slate-500">v{analysis.version}</span>}
         <ReviewStatusBadge status={analysis.status} />
+        {isPrivileged && analysis.status === 'superseded' && (
+          <Button size="sm" variant="outline" disabled={acting !== null} onClick={setCurrent}>
+            {acting === 'setCurrent' ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <History className="mr-1 h-4 w-4" />}
+            设为当前版本
+          </Button>
+        )}
         {!myTurn && <span className="text-sm text-amber-600">（当前不在您的审核节点，仅可查看）</span>}
       </div>
 
@@ -272,8 +369,8 @@ export default function ReviewDetail() {
         <TabsContent value="analysis" className="pt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">AI 梳理内容 · v{analysis.version}</CardTitle>
-              <p className="text-xs text-slate-400">生成时间 {formatTime(analysis.created_at)}</p>
+              <CardTitle className="text-base">梳理内容 · v{analysis.version}</CardTitle>
+              <p className="text-xs text-slate-400">梳理时间 {formatTime(analysis.created_at)}</p>
             </CardHeader>
             <CardContent>
               <div className="markdown-body rounded-lg border border-slate-100 bg-slate-50/50 p-5">
@@ -307,6 +404,49 @@ export default function ReviewDetail() {
         <Card className="border-amber-200 bg-amber-50/50">
           <CardContent className="py-5 text-sm text-amber-800">
             该项目尚未设置审核等级，暂不能审核。请先到「项目总览 → 审核设置」为项目设置审核等级，设置后本报告会自动进入对应节点。
+          </CardContent>
+        </Card>
+      )}
+
+      {myTurn && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wand2 className="h-4 w-4" /> 局部修改（智能体只改写指定片段，其余内容不动）
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {partialLoading ? (
+              <PartialEditPanel />
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>需要修改的原文片段（从上方报告中复制粘贴，需精确一致）</Label>
+                  <Textarea
+                    rows={4}
+                    value={fragment}
+                    onChange={(e) => setFragment(e.target.value)}
+                    placeholder="粘贴报告中要修改的那段原文…"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>修改要求</Label>
+                  <Textarea
+                    rows={2}
+                    value={requirement}
+                    onChange={(e) => setRequirement(e.target.value)}
+                    placeholder="如：把方向三改成先做社群老客裂变，不写投放；如：语气再直接一些…"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                  onClick={partialEdit}
+                >
+                  <Wand2 className="mr-1.5 h-4 w-4" /> 智能体局部修改
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       )}
@@ -363,6 +503,35 @@ export default function ReviewDetail() {
           </CardContent>
         </Card>
       )}
+    </div>
+  )
+}
+
+/* ---------------- 局部修改等待动画 ---------------- */
+
+function PartialEditPanel() {
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 px-5 py-8">
+      <style>{`@keyframes ai-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`}</style>
+      <div
+        className="absolute inset-0 bg-gradient-to-r from-transparent via-violet-100/70 to-transparent"
+        style={{ animation: 'ai-shimmer 2.4s ease-in-out infinite' }}
+      />
+      <div className="relative flex flex-col items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          {[0, 1, 2].map((n) => (
+            <span
+              key={n}
+              className="h-2.5 w-2.5 animate-bounce rounded-full bg-violet-400"
+              style={{ animationDelay: `${n * 0.18}s` }}
+            />
+          ))}
+        </div>
+        <p className="text-sm font-medium text-violet-700">智能体正在改写指定片段…</p>
+        <p className="max-w-sm text-center text-xs leading-5 text-slate-400">
+          仅改写你指定的片段，其余内容保持不变，完成后自动生成新版本
+        </p>
+      </div>
     </div>
   )
 }

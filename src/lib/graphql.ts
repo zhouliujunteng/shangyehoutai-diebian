@@ -11,6 +11,9 @@ export const ACCOUNT_ADMIN_FLOW_ID = 'ef7f3f19-7ad1-446a-a579-53d8b2121a8f'
 /** 「生成回复草稿」ActionFlow ID（异步执行：汇总企业信息+梳理方案+历史问答 → AI 起草回复） */
 export const REPLY_DRAFT_FLOW_ID = '0a83c789-2d67-45ad-809e-e267d7194bde'
 
+/** 「局部修改报告」ActionFlow ID（异步执行：定位片段 → AI 只改写该片段 → 写回新版本） */
+export const PARTIAL_EDIT_FLOW_ID = '139c9fc1-2cd4-46d6-bb5e-f28a52fa6fa3'
+
 /** 同步调用行为流（按最新版本），失败抛错 */
 export async function invokeActionFlow(flowId: string, args: Record<string, unknown>): Promise<unknown> {
   const data = await gql<{ fz_invoke_action_flow_default_by_latest_version: unknown }>(

@@ -103,7 +103,11 @@ export default function ProjectReplies() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  const latestAnalysis = useMemo(() => project?.analyses?.[0] ?? null, [project])
+  // 展示当前确认版本：有已发布版本优先展示已发布，否则最新一版
+  const latestAnalysis = useMemo(
+    () => project?.analyses?.find((a) => a.status === 'published') ?? project?.analyses?.[0] ?? null,
+    [project],
+  )
 
   if (loading) {
     return (
