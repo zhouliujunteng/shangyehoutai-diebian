@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useParams } from 'react-router'
 import { gql } from '@/lib/graphql'
-import { BASIC_GROUPS, DETAILED_SECTIONS } from '@/lib/forms'
+import { BASIC_GROUPS, DETAILED_SECTIONS, DETAILED_PLACEHOLDERS } from '@/lib/forms'
 import type { CollectLink, Submission } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -563,6 +563,7 @@ function DetailedForm({
                         rows={2}
                         value={values[q] ?? ''}
                         onChange={(e) => setValues((prev) => ({ ...prev, [q]: e.target.value }))}
+                        placeholder={DETAILED_PLACEHOLDERS[q]}
                       />
                     </div>
                   ))}
