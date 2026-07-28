@@ -83,6 +83,8 @@ export interface Analysis {
   internal_ref?: string | null
   status: ReviewStatus
   current_stage: number
+  /** 终审通过时间（发布时间）；未发布为空 */
+  published_at?: string | null
   project_id: number
   created_at?: string
   project?: { id: number; name: string; current_analysis_id?: number | null } | null

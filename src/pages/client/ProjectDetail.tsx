@@ -62,7 +62,7 @@ export default function ProjectDetail() {
             id name remark status review_level current_analysis_id created_at
             collect_links(order_by: { id: desc }) { id token status expires_at project_id created_at }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
-            analyses(order_by: { id: desc }) { id version content status current_stage project_id created_at }
+            analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
             questions(order_by: { id: desc }) {
               id content status attachments project_id created_at
               replies(order_by: { id: desc }) { id content status attachments current_stage question_id created_at }
@@ -570,7 +570,7 @@ function AnalysisCard({
       {
         enterpriseName: projectDisplayName(project),
         version: publishedAnalysis.version,
-        generatedAt: formatTime(publishedAnalysis.created_at),
+        generatedAt: formatTime(publishedAnalysis.published_at ?? publishedAnalysis.created_at),
       },
       stripInternalRef(publishedAnalysis.content),
     )
@@ -590,7 +590,7 @@ function AnalysisCard({
         {
           enterpriseName: projectDisplayName(project),
           version: publishedAnalysis.version,
-          generatedAt: formatTime(publishedAnalysis.created_at),
+          generatedAt: formatTime(publishedAnalysis.published_at ?? publishedAnalysis.created_at),
         },
         stripInternalRef(publishedAnalysis.content),
         `${projectDisplayName(project)}-梳理报告-v${publishedAnalysis.version}.pdf`,
@@ -610,6 +610,8 @@ function AnalysisCard({
           {latestAnalysis && (
             <span className="text-sm font-normal text-slate-500">
               v{latestAnalysis.version} · {latestAnalysis.status === 'published' ? '已梳理' : '梳理中'}
+              {latestAnalysis.status === 'published' &&
+                ` · 梳理时间 ${formatTime(latestAnalysis.published_at ?? latestAnalysis.created_at)}`}
             </span>
           )}
         </CardTitle>

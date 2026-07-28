@@ -65,7 +65,7 @@ export default function ReviewDetail() {
       const data = await gql<{ analysis_by_pk: AnalysisFull | null }>(
         `query($id: bigint!) {
           analysis_by_pk(id: $id) {
-            id version content internal_ref status current_stage project_id created_at
+            id version content internal_ref status current_stage published_at project_id created_at
             project { id name review_level status current_analysis_id }
           }
         }`,
@@ -149,6 +149,7 @@ export default function ReviewDetail() {
             internal_ref: ref,
             status: analysis.status,
             current_stage: analysis.current_stage,
+            published_at: analysis.status === 'published' ? new Date().toISOString() : null,
           },
           oid: analysis.id,
         },
@@ -185,8 +186,8 @@ export default function ReviewDetail() {
     try {
       // 若内容有改动则一并保存
       await gql(
-        `mutation($aid: bigint!, $c: String!, $pid: bigint!, $cur: bigint!, $rec: review_record_insert_input!) {
-          update_analysis_by_pk(pk_columns: { id: $aid }, _set: { content: $c, status: "published", current_stage: 1 }) { id }
+        `mutation($aid: bigint!, $c: String!, $pid: bigint!, $cur: bigint!, $t: timestamptz!, $rec: review_record_insert_input!) {
+          update_analysis_by_pk(pk_columns: { id: $aid }, _set: { content: $c, status: "published", current_stage: 1, published_at: $t }) { id }
           update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "published", current_analysis_id: $cur }) { id }
           insert_review_record_one(object: $rec) { id }
         }`,
@@ -194,6 +195,7 @@ export default function ReviewDetail() {
           aid: analysis.id,
           c: editContent,
           cur: analysis.id,
+          t: new Date().toISOString(),
           pid: analysis.project_id,
           rec: {
             project_id: analysis.project_id,
@@ -250,13 +252,14 @@ export default function ReviewDetail() {
           },
         },
       )
-      // 终审发布后：当前版本指针自动移到本版本，客户端随即可见
+      // 终审发布后：当前版本指针自动移到本版本，并记录发布时间，客户端随即可见
       if (next.status === 'published') {
         await gql(
-          `mutation($pid: bigint!, $cur: bigint!) {
+          `mutation($pid: bigint!, $cur: bigint!, $aid: bigint!, $t: timestamptz!) {
             update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $cur }) { id }
+            update_analysis_by_pk(pk_columns: { id: $aid }, _set: { published_at: $t }) { id }
           }`,
-          { pid: analysis.project_id, cur: analysis.id },
+          { pid: analysis.project_id, cur: analysis.id, aid: analysis.id, t: new Date().toISOString() },
         )
       }
       await logOperation({
@@ -334,8 +337,8 @@ export default function ReviewDetail() {
       const restore = analysis.status === 'superseded'
       await gql(
         restore
-          ? `mutation($aid: bigint!, $pid: bigint!) {
-              update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published" }) { id }
+          ? `mutation($aid: bigint!, $pid: bigint!, $t: timestamptz!) {
+              update_analysis_by_pk(pk_columns: { id: $aid }, _set: { status: "published", published_at: $t }) { id }
               update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $aid }) { id }
               update_analysis(where: { project_id: { _eq: $pid }, status: { _in: ["pending_setup", "pending_l3", "pending_l2", "pending_l1"] }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
             }`
@@ -343,7 +346,7 @@ export default function ReviewDetail() {
               update_project_by_pk(pk_columns: { id: $pid }, _set: { current_analysis_id: $aid }) { id }
               update_analysis(where: { project_id: { _eq: $pid }, status: { _in: ["pending_setup", "pending_l3", "pending_l2", "pending_l1"] }, id: { _neq: $aid } }, _set: { status: "superseded" }) { affected_rows }
             }`,
-        { aid: analysis.id, pid: analysis.project_id },
+        restore ? { aid: analysis.id, pid: analysis.project_id, t: new Date().toISOString() } : { aid: analysis.id, pid: analysis.project_id },
       )
       await logOperation({
         projectId: analysis.project_id,
@@ -525,7 +528,7 @@ export default function ReviewDetail() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-base">梳理内容 · v{analysis.version}</CardTitle>
-                  <p className="text-xs text-slate-400">梳理时间 {formatTime(analysis.created_at)}</p>
+                  <p className="text-xs text-slate-400">梳理时间 {formatTime(analysis.published_at ?? analysis.created_at)}</p>
                 </div>
                 {versions.length > 1 && (
                   <div className="flex items-center gap-2">
