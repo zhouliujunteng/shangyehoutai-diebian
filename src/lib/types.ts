@@ -99,7 +99,7 @@ export interface ReviewAssignment {
 
 export interface ReviewRecord {
   id: number
-  target_type: 'analysis' | 'reply'
+  target_type: 'analysis' | 'reply' | 'feedback_reply'
   target_id: string
   level: number
   reviewer: string
@@ -146,6 +146,61 @@ export interface OperationLog {
   operator: string
   action: string
   detail: Record<string, unknown> | null
+  project_id: number
+  created_at?: string
+}
+
+/* ---------- 方案反馈（反馈链接机制，替代旧提问/回复） ---------- */
+
+/** 反馈选项 key */
+export type FeedbackOption =
+  | 'form_supplement'   // ① 补充表单
+  | 'info_supplement'   // ② 方案过程中的补充信息
+  | 'execution_issues'  // ③ 执行过程中遇到的问题
+  | 'detail_request'    // ④ 方案中需要再具体陈述的细节
+  | 'result_feedback'   // ⑤ 执行后的反馈结果
+
+export type FeedbackLinkStatus = 'active' | 'submitted' | 'closed' | 'done'
+
+export interface FeedbackLink {
+  id: number
+  token: string
+  options: FeedbackOption[]
+  status: FeedbackLinkStatus
+  expires_at: string
+  project_id: number
+  created_at?: string
+  feedback_submissions?: FeedbackSubmission[]
+}
+
+export type FeedbackSubmissionStatus = 'submitted' | 'confirmed' | 'replied'
+
+/** 表单补充内容：{ basic: { 字段名: 补充文本 }, detailed: { 字段名: 补充文本 } } */
+export type FormSupplement = Record<string, Record<string, string>>
+
+export interface FeedbackSubmission {
+  id: number
+  form_supplement: FormSupplement | null
+  info_supplement: string | null
+  execution_issues: string | null
+  detail_request: string | null
+  result_feedback: string | null
+  filler_name: string | null
+  filler_contact: string | null
+  status: FeedbackSubmissionStatus
+  link_id: number
+  created_at?: string
+  feedback_replies?: FeedbackReply[]
+}
+
+export interface FeedbackReply {
+  id: number
+  version: number
+  content: string
+  status: ReviewStatus | 'draft' | 'published'
+  current_stage: number
+  internal_ref?: string | null
+  feedback_submission_id: number
   project_id: number
   created_at?: string
 }

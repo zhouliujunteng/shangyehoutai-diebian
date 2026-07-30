@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Building2, CheckCircle2, Loader2, XCircle, Clock, FileCheck } from 'lucide-react'
+import FeedbackFillPage from './FeedbackFillPage'
 
 type PageState =
   | { kind: 'loading' }
@@ -29,6 +30,7 @@ export default function FillPage() {
   const { token } = useParams<{ token: string }>()
   const [state, setState] = useState<PageState>({ kind: 'loading' })
   const [link, setLink] = useState<LinkInfo | null>(null)
+  const [isFeedbackLink, setIsFeedbackLink] = useState(false)
   const [supplementMode, setSupplementMode] = useState(false)
   const [version, setVersion] = useState<FormVersion>('detailed')
   const [prefill, setPrefill] = useState<Record<string, string>>({})
@@ -55,7 +57,17 @@ export default function FillPage() {
         )
         const lk = data.collect_link[0]
         if (!lk) {
-          setState({ kind: 'invalid' })
+          // 收集链接未命中：可能是方案反馈链接，改由反馈填写页处理
+          const fb = await gql<{ feedback_link: { id: number }[] }>(
+            `query($token: String!) { feedback_link(where: { token: { _eq: $token } }, limit: 1) { id } }`,
+            { token },
+            false,
+          )
+          if (fb.feedback_link[0]) {
+            setIsFeedbackLink(true)
+          } else {
+            setState({ kind: 'invalid' })
+          }
           return
         }
         const expired = lk.status === 'expired' || new Date(lk.expires_at).getTime() < Date.now()
@@ -108,6 +120,10 @@ export default function FillPage() {
       }
     })()
   }, [token])
+
+  if (isFeedbackLink && token) {
+    return <FeedbackFillPage token={token} />
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">

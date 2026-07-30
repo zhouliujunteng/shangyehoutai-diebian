@@ -15,10 +15,19 @@ import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import { Loader2, ArrowRight, Search, RefreshCw } from 'lucide-react'
 
+interface FeedbackRow {
+  id: number
+  status: string
+  created_at?: string
+  link?: { project_id: number; project?: { id: number; name: string } | null } | null
+  feedback_replies?: { id: number; status: string; current_stage: number; created_at?: string }[]
+}
+
 interface ProjectGroup {
   project_id: number
   name: string
   questions: Question[]
+  feedbackCount: number
   needMeCount: number
   latestTime?: string
   latestReplyStatus?: string | null
@@ -44,12 +53,17 @@ export default function RepliesList() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await gql<{ question: Question[] }>(
+      const data = await gql<{ question: Question[]; feedback_submission: FeedbackRow[] }>(
         `query {
           question(order_by: { id: desc }) {
             id content status project_id created_at
             project { id name }
             replies(order_by: { id: desc }, limit: 1) { id content status current_stage question_id created_at }
+          }
+          feedback_submission(order_by: { id: desc }) {
+            id status created_at
+            link { project_id project { id name } }
+            feedback_replies(order_by: { id: desc }, limit: 1) { id status current_stage created_at }
           }
         }`,
       )
@@ -59,20 +73,32 @@ export default function RepliesList() {
         if (!r) return true // 还没有回复草稿，任何服务端人员可起草
         return r.status === myPending
       }
-      const map = new Map<number, ProjectGroup>()
-      for (const q of data.question) {
-        const pid = q.project_id
+      const needMeFb = (f: FeedbackRow): boolean => {
+        const r = f.feedback_replies?.[0]
+        if (f.status === 'replied') return false
+        if (!r) return true // 反馈未起草回复，任何服务端人员可处理
+        return r.status === myPending
+      }
+      const ensureGroup = (pid: number, name: string | undefined, ts?: string): ProjectGroup => {
         if (!map.has(pid)) {
           map.set(pid, {
             project_id: pid,
-            name: q.project?.name ?? `项目 #${pid}`,
+            name: name ?? `项目 #${pid}`,
             questions: [],
+            feedbackCount: 0,
             needMeCount: 0,
-            latestTime: q.created_at,
+            latestTime: ts,
             latestReplyStatus: null,
           })
         }
-        const g = map.get(pid)!
+        return map.get(pid)!
+      }
+      const bumpTime = (g: ProjectGroup, ts?: string) => {
+        if (ts && new Date(ts).getTime() > new Date(g.latestTime ?? 0).getTime()) g.latestTime = ts
+      }
+      const map = new Map<number, ProjectGroup>()
+      for (const q of data.question) {
+        const g = ensureGroup(q.project_id, q.project?.name, q.created_at)
         g.questions.push(q)
         if (needMe(q)) g.needMeCount += 1
         const r = q.replies?.[0]
@@ -82,6 +108,17 @@ export default function RepliesList() {
         const qTs = q.created_at ? new Date(q.created_at).getTime() : 0
         const latest = Math.max(rTs, qTs)
         if (latest > new Date(g.latestTime ?? 0).getTime()) g.latestTime = new Date(latest).toISOString()
+      }
+      for (const f of data.feedback_submission) {
+        const pid = f.link?.project_id
+        if (!pid) continue
+        const g = ensureGroup(pid, f.link?.project?.name, f.created_at)
+        g.feedbackCount += 1
+        if (needMeFb(f)) g.needMeCount += 1
+        const r = f.feedback_replies?.[0]
+        if (r && !g.latestReplyStatus) g.latestReplyStatus = r.status
+        bumpTime(g, f.created_at)
+        bumpTime(g, r?.created_at)
       }
       setGroups([...map.values()])
     } catch (e) {
@@ -105,7 +142,7 @@ export default function RepliesList() {
           <div className="min-w-0">
             <p className="truncate font-medium text-slate-800">{g.name}</p>
             <p className="mt-0.5 text-xs text-slate-400">
-              {g.questions.length} 条提问 · {formatTime(g.latestTime)}
+              {g.questions.length} 条提问{g.feedbackCount > 0 ? ` · ${g.feedbackCount} 条反馈` : ''} · {formatTime(g.latestTime)}
             </p>
           </div>
           {g.latestReplyStatus ? (
@@ -174,7 +211,7 @@ export default function RepliesList() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>项目名称</TableHead>
-                    <TableHead>提问数</TableHead>
+                    <TableHead>提问 / 反馈</TableHead>
                     <TableHead>动态</TableHead>
                     <TableHead>回复状态</TableHead>
                     <TableHead>最新时间</TableHead>
@@ -188,7 +225,10 @@ export default function RepliesList() {
                         {g.name}
                         {isUnseen(g.latestTime, g.project_id, viewedScope) && <UpdateDot />}
                       </TableCell>
-                      <TableCell>{g.questions.length}</TableCell>
+                      <TableCell>
+                        {g.questions.length}
+                        {g.feedbackCount > 0 && <span className="text-slate-400"> / {g.feedbackCount}</span>}
+                      </TableCell>
                       <TableCell>
                         {g.needMeCount > 0 ? (
                           <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">

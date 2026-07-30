@@ -9,14 +9,18 @@ import {
   formatTime,
   randomToken,
   plusDaysISO,
+  FEEDBACK_OPTION_LABEL,
+  FEEDBACK_OPTION_DESC,
+  FEEDBACK_OPTION_ORDER,
 } from '@/lib/labels'
-import { projectDisplayName, type Analysis, type CollectLink, type Project, type Question, type Submission } from '@/lib/types'
+import { projectDisplayName, type Analysis, type CollectLink, type FeedbackLink, type FeedbackOption, type Project, type Question, type Submission } from '@/lib/types'
 import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
-import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, QuestionStatusBadge } from '@/components/StatusBadge'
+import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, QuestionStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -36,6 +40,8 @@ import {
   XCircle,
   Check,
   Pencil,
+  ListChecks,
+  Ban,
 } from 'lucide-react'
 
 interface ProjectFull extends Project {
@@ -43,6 +49,7 @@ interface ProjectFull extends Project {
   submissions: Submission[]
   analyses: Analysis[]
   questions: Question[]
+  feedback_links: FeedbackLink[]
 }
 
 export default function ProjectDetail() {
@@ -66,6 +73,13 @@ export default function ProjectDetail() {
             questions(order_by: { id: desc }) {
               id content status attachments project_id created_at
               replies(order_by: { id: desc }) { id content status attachments current_stage question_id created_at }
+            }
+            feedback_links(order_by: { id: desc }) {
+              id token options status expires_at project_id created_at
+              feedback_submissions(order_by: { id: desc }) {
+                id status filler_name filler_contact created_at
+                feedback_replies(order_by: { id: desc }) { id content status created_at }
+              }
             }
           }
         }`,
@@ -154,6 +168,17 @@ export default function ProjectDetail() {
       </div>
 
       <AnalysisCard project={project} latestAnalysis={latestAnalysis} publishedAnalysis={publishedAnalysis} />
+
+      <div className="no-print">
+        {publishedAnalysis && (
+          <FeedbackCard
+            project={project}
+            links={project.feedback_links}
+            username={auth!.account.username}
+            onChanged={refresh}
+          />
+        )}
+      </div>
 
       <div className="no-print">
         {publishedAnalysis ? (
@@ -754,6 +779,270 @@ function QuestionsCard({
               )
             })}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ---------------- 方案反馈 ---------------- */
+
+const FEEDBACK_LINK_DAYS = 7
+
+function FeedbackCard({
+  project,
+  links,
+  username,
+  onChanged,
+}: {
+  project: Project
+  links: FeedbackLink[]
+  username: string
+  onChanged: () => void
+}) {
+  const [picking, setPicking] = useState(false)
+  const [selected, setSelected] = useState<FeedbackOption[]>([])
+  const [acting, setActing] = useState<string | null>(null)
+
+  const fullUrl = (token: string) => `${window.location.origin}${window.location.pathname}#/f/${token}`
+
+  const copyInvite = async (link: FeedbackLink) => {
+    const opts = ((link.options ?? []) as FeedbackOption[])
+    const lines = [
+      '【方案反馈邀请】',
+      `你好，${projectDisplayName(project)} 的服务团队邀请你就梳理方案反馈以下内容（均可选填）：`,
+      ...FEEDBACK_OPTION_ORDER.filter((o) => opts.includes(o)).map(
+        (o) => `- ${FEEDBACK_OPTION_LABEL[o]}：${FEEDBACK_OPTION_DESC[o]}`,
+      ),
+      `填写链接（${FEEDBACK_LINK_DAYS} 天内有效，仅可提交一次）：${fullUrl(link.token)}`,
+    ]
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      toast.success('邀请话术和链接已复制，可直接转发给填写人')
+    } catch {
+      toast.info(fullUrl(link.token))
+    }
+  }
+
+  const createLink = async () => {
+    if (selected.length === 0) {
+      toast.error('请至少勾选一项反馈内容')
+      return
+    }
+    setActing('create')
+    try {
+      await gql(
+        `mutation($obj: feedback_link_insert_input!) {
+          insert_feedback_link_one(object: $obj) { id }
+        }`,
+        {
+          obj: {
+            project_id: project.id,
+            token: randomToken(),
+            options: selected,
+            status: 'active',
+            expires_at: plusDaysISO(FEEDBACK_LINK_DAYS),
+          },
+        },
+      )
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '签发方案反馈链接',
+        targetType: 'feedback_link',
+        detail: { options: selected },
+      })
+      toast.success('反馈链接已签发，复制后发送给填写人')
+      setPicking(false)
+      setSelected([])
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '签发失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const closeLink = async (link: FeedbackLink) => {
+    setActing(`close-${link.id}`)
+    try {
+      await gql(
+        `mutation($id: bigint!) {
+          update_feedback_link_by_pk(pk_columns: { id: $id }, _set: { status: "closed" }) { id }
+        }`,
+        { id: link.id },
+      )
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '撤回方案反馈链接',
+        targetType: 'feedback_link',
+        targetId: link.id,
+      })
+      toast.success('已撤回，填写人将无法再打开该链接')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '操作失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const resignLink = async (link: FeedbackLink) => {
+    setActing(`resign-${link.id}`)
+    try {
+      await gql(
+        `mutation($id: bigint!, $token: String!, $exp: timestamptz!) {
+          update_feedback_link_by_pk(pk_columns: { id: $id }, _set: { token: $token, expires_at: $exp, status: "active" }) { id }
+        }`,
+        { id: link.id, token: randomToken(), exp: plusDaysISO(FEEDBACK_LINK_DAYS) },
+      )
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '重新签发方案反馈链接',
+        targetType: 'feedback_link',
+        targetId: link.id,
+      })
+      toast.success(`已重新签发（${FEEDBACK_LINK_DAYS} 天有效）`)
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '操作失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ListChecks className="h-4 w-4" /> 方案反馈
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-slate-500">
+          签发反馈链接发给企业，邀请对方就方案补充信息、提出执行问题或反馈执行结果；服务团队回复后在此展示。
+        </p>
+
+        {links.length > 0 && (
+          <div className="space-y-3">
+            {links.map((l) => {
+              const expired = l.status === 'active' && new Date(l.expires_at).getTime() < Date.now()
+              const submissions = l.feedback_submissions ?? []
+              return (
+                <div key={l.id} className="space-y-2 rounded-lg border border-slate-200 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FeedbackLinkStatusBadge status={expired ? 'closed' : l.status} />
+                    {expired && <span className="text-xs text-slate-400">（已过期）</span>}
+                    <span className="text-xs text-slate-400">
+                      {((l.options ?? []) as FeedbackOption[])
+                        .map((o) => FEEDBACK_OPTION_LABEL[o] ?? o)
+                        .join('、')}
+                    </span>
+                    <span className="ml-auto text-xs text-slate-400">{formatTime(l.created_at)}</span>
+                  </div>
+                  {l.status === 'active' && !expired && (
+                    <>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <code className="flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 border border-slate-200">
+                          {fullUrl(l.token)}
+                        </code>
+                        <Button variant="outline" size="sm" className="shrink-0" onClick={() => copyInvite(l)}>
+                          <Copy className="mr-1 h-4 w-4" /> 复制
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                        <span>到期时间 {formatTime(l.expires_at)}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-red-500 hover:bg-red-50 hover:text-red-600"
+                          disabled={acting === `close-${l.id}`}
+                          onClick={() => closeLink(l)}
+                        >
+                          {acting === `close-${l.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Ban className="mr-1 h-3.5 w-3.5" />}
+                          撤回
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  {(l.status === 'closed' || expired) && submissions.length === 0 && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400">该链接{expired ? '已过期' : '已撤回'}，可重新签发后再发给填写人</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 border-amber-300 text-amber-700 hover:bg-amber-50"
+                        disabled={acting === `resign-${l.id}`}
+                        onClick={() => resignLink(l)}
+                      >
+                        {acting === `resign-${l.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                        重新签发
+                      </Button>
+                    </div>
+                  )}
+                  {submissions.map((s) => {
+                    const publishedReply = (s.feedback_replies ?? []).find((r) => r.status === 'published')
+                    return (
+                      <div key={s.id} className="rounded-lg bg-slate-50 px-3 py-2.5 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <span className="text-slate-700">{s.filler_name ?? '填写人'} 已提交反馈</span>
+                          <FeedbackSubmissionStatusBadge status={s.status} />
+                          <span className="ml-auto text-xs text-slate-400">{formatTime(s.created_at)}</span>
+                        </div>
+                        {s.status === 'replied' && publishedReply && (
+                          <div className="space-y-2 border-t border-slate-200 pt-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-medium text-slate-500">老师回复</p>
+                              <CopyTextButton text={publishedReply.content} />
+                            </div>
+                            <p className="whitespace-pre-wrap text-sm text-slate-700">{publishedReply.content}</p>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {picking ? (
+          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-4">
+            <p className="text-sm font-medium text-slate-700">勾选希望企业反馈的内容（至少一项）：</p>
+            <div className="space-y-2.5">
+              {FEEDBACK_OPTION_ORDER.map((o) => (
+                <label key={o} className="flex cursor-pointer items-start gap-2.5">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={selected.includes(o)}
+                    onCheckedChange={(v) =>
+                      setSelected((prev) => (v ? [...prev, o] : prev.filter((x) => x !== o)))
+                    }
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-slate-800">{FEEDBACK_OPTION_LABEL[o]}</span>
+                    <span className="ml-1.5 text-xs text-slate-400">{FEEDBACK_OPTION_DESC[o]}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <Button size="sm" className="bg-slate-900 hover:bg-slate-800" disabled={acting === 'create'} onClick={createLink}>
+                {acting === 'create' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Link2 className="mr-1.5 h-4 w-4" />}
+                签发链接（{FEEDBACK_LINK_DAYS} 天有效）
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setPicking(false); setSelected([]) }}>
+                取消
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
+            <Link2 className="mr-1.5 h-4 w-4" /> 签发反馈链接
+          </Button>
         )}
       </CardContent>
     </Card>

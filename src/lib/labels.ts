@@ -96,3 +96,44 @@ export function randomToken(): string {
 export function plusDaysISO(days: number): string {
   return new Date(Date.now() + days * 24 * 3600 * 1000).toISOString()
 }
+
+/* ---------- 方案反馈 ---------- */
+
+import type { FeedbackOption, FeedbackLinkStatus, FeedbackSubmissionStatus } from './types'
+
+export const FEEDBACK_OPTION_LABEL: Record<FeedbackOption, string> = {
+  form_supplement: '补充表单',
+  info_supplement: '方案补充信息',
+  execution_issues: '执行中遇到的问题',
+  detail_request: '需要具体陈述的细节',
+  result_feedback: '执行后的反馈结果',
+}
+
+export const FEEDBACK_OPTION_DESC: Record<FeedbackOption, string> = {
+  form_supplement: '原收集表内容保持不变，可在每项后面追加补充',
+  info_supplement: '方案形成过程中想到的新情况、新信息',
+  execution_issues: '按照方案执行时卡住的地方',
+  detail_request: '方案中觉得好、但希望讲得更具体的点',
+  result_feedback: '执行后的数据、变化与心得',
+}
+
+export const FEEDBACK_OPTION_ORDER: FeedbackOption[] = [
+  'form_supplement',
+  'info_supplement',
+  'execution_issues',
+  'detail_request',
+  'result_feedback',
+]
+
+export const FEEDBACK_LINK_STATUS_LABEL: Record<FeedbackLinkStatus, string> = {
+  active: '待填写',
+  submitted: '已提交待确认',
+  closed: '已撤回',
+  done: '已完成',
+}
+
+export const FEEDBACK_SUBMISSION_STATUS_LABEL: Record<FeedbackSubmissionStatus, string> = {
+  submitted: '待确认',
+  confirmed: '回复中',
+  replied: '已回复',
+}
