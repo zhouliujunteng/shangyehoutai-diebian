@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
-import { gql, logOperation, createActionFlowTask, waitActionFlowResult, REPLY_DRAFT_FLOW_ID, FEEDBACK_REPLY_FLOW_ID } from '@/lib/graphql'
-import { AttachmentPicker, AttachmentView, type AttachmentItem } from '@/lib/attachments'
+import { gql, logOperation, createActionFlowTask, waitActionFlowResult, FEEDBACK_REPLY_FLOW_ID } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, initialReviewStage, formatTime, FEEDBACK_OPTION_LABEL } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
-import { projectDisplayName, type Analysis, type FeedbackLink, type FeedbackOption, type FeedbackReply, type FeedbackSubmission, type Project, type Question, type Submission } from '@/lib/types'
-import { QuestionStatusBadge, ReviewStatusBadge, ProjectStatusBadge, FeedbackSubmissionStatusBadge, FeedbackLinkStatusBadge } from '@/components/StatusBadge'
+import { projectDisplayName, type Analysis, type FeedbackLink, type FeedbackOption, type FeedbackReply, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
+import { ReviewStatusBadge, ProjectStatusBadge, FeedbackSubmissionStatusBadge, FeedbackLinkStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
@@ -22,7 +21,6 @@ interface ProjectFull extends Project {
   owner?: { username: string } | null
   submissions: Submission[]
   analyses: Analysis[]
-  questions: Question[]
   feedback_links: (FeedbackLink & { feedback_submissions: FeedbackSubmission[] })[]
 }
 
@@ -32,33 +30,11 @@ export default function ProjectReplies() {
   const { auth } = useAuth()
   const [project, setProject] = useState<ProjectFull | null>(null)
   const [loading, setLoading] = useState(true)
-  const [contents, setContents] = useState<Record<number, string>>({})
-  const [comments, setComments] = useState<Record<number, string>>({})
-  const [filesMap, setFilesMap] = useState<Record<number, AttachmentItem[]>>({})
-  const [acting, setActing] = useState<string | null>(null)
-  // AI 智能体起草：按提问记录生成中的状态
-  const [aiDrafting, setAiDrafting] = useState<Record<number, boolean>>({})
-  // 方案反馈：回复编辑内容 / 审核备注 / AI 起草中状态（按反馈提交 ID）
+  // 回复编辑内容 / 审核备注 / AI 起草中状态（按反馈提交 ID）
   const [fbContents, setFbContents] = useState<Record<number, string>>({})
   const [fbComments, setFbComments] = useState<Record<number, string>>({})
   const [fbDrafting, setFbDrafting] = useState<Record<number, boolean>>({})
-
-  // 调用「生成回复草稿」行为流：综合企业基本信息、梳理方案、历史问答与提问附件起草回复
-  const generateDraft = async (q: Question) => {
-    setAiDrafting((p) => ({ ...p, [q.id]: true }))
-    try {
-      const taskId = await createActionFlowTask(REPLY_DRAFT_FLOW_ID, { 提问ID: q.id })
-      const output = await waitActionFlowResult(taskId)
-      const text = typeof output['回复文本'] === 'string' ? (output['回复文本'] as string) : ''
-      if (!text.trim()) throw new Error('智能体未返回内容，请重试')
-      setContents((p) => ({ ...p, [q.id]: text.trim() }))
-      toast.success('AI 草稿已生成，请审核修改后再提交')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'AI 起草失败，请重试')
-    } finally {
-      setAiDrafting((p) => ({ ...p, [q.id]: false }))
-    }
-  }
+  const [acting, setActing] = useState<string | null>(null)
 
   const myLevel = myReviewLevel(auth?.account)
   const myName = auth?.account.username ?? ''
@@ -75,16 +51,12 @@ export default function ProjectReplies() {
             owner { username }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content internal_ref status current_stage project_id created_at }
-            questions(order_by: { id: desc }) {
-              id content status attachments project_id created_at
-              replies(order_by: { id: desc }, limit: 1) { id content status attachments current_stage question_id created_at }
-            }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
                 id form_supplement info_supplement execution_issues detail_request result_feedback
                 filler_name filler_contact status link_id created_at
-                feedback_replies(order_by: { id: desc }, limit: 1) { id version content status current_stage internal_ref feedback_submission_id project_id created_at }
+                feedback_replies(order_by: { id: desc }) { id version content status current_stage internal_ref feedback_submission_id project_id created_at }
               }
             }
           }
@@ -92,24 +64,14 @@ export default function ProjectReplies() {
         { id: projectId },
       )
       setProject(data.project_by_pk)
-      // 进入项目回复页即视为已读，清除项目总览的更新红点
+      // 进入项目反馈页即视为已读，清除列表的更新红点
       if (data.project_by_pk) markProjectViewed(data.project_by_pk.id, `server:${myName}`)
-      // 初始化各问题的回复编辑内容
-      const init: Record<number, string> = {}
-      const initFiles: Record<number, AttachmentItem[]> = {}
-      for (const q of data.project_by_pk?.questions ?? []) {
-        const r = q.replies?.[0]
-        init[q.id] = r && r.status !== 'published' ? r.content : ''
-        initFiles[q.id] = (r && r.status !== 'published' ? (r.attachments as AttachmentItem[] | null) : null) ?? []
-      }
-      setContents(init)
-      setFilesMap(initFiles)
-      // 初始化各反馈的回复编辑内容
+      // 初始化各反馈的回复编辑内容（取最新一份未发布草稿）
       const fbInit: Record<number, string> = {}
       for (const l of data.project_by_pk?.feedback_links ?? []) {
         for (const s of l.feedback_submissions ?? []) {
-          const r = s.feedback_replies?.[0]
-          fbInit[s.id] = r && r.status !== 'published' ? r.content : ''
+          const r = (s.feedback_replies ?? []).find((x) => x.status !== 'published' && x.status !== 'superseded')
+          fbInit[s.id] = r ? r.content : ''
         }
       }
       setFbContents(fbInit)
@@ -149,139 +111,27 @@ export default function ProjectReplies() {
 
   const reviewLevel = project.review_level ?? 3
 
-  /** 起草回复并进入审核链 */
-  const createReply = async (q: Question) => {
-    const content = (contents[q.id] ?? '').trim()
-    if (!content) {
-      toast.error('请输入回复内容')
-      return
-    }
-    setActing(`create-${q.id}`)
-    try {
-      const init = initialReviewStage(reviewLevel)
-      await gql(
-        `mutation($obj: reply_insert_input!, $qid: bigint!) {
-          insert_reply_one(object: $obj) { id }
-          update_question_by_pk(pk_columns: { id: $qid }, _set: { status: "in_review" }) { id }
-        }`,
-        {
-          obj: {
-            question_id: q.id,
-            content,
-            status: init.status,
-            current_stage: init.current_stage,
-            attachments: (filesMap[q.id] ?? []).length > 0 ? filesMap[q.id] : null,
-          },
-          qid: q.id,
-        },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: myName,
-        action: '起草回复并提交审核',
-        targetType: 'question',
-        targetId: q.id,
-      })
-      toast.success('回复已提交，进入审核流程')
-      load()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '提交失败')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  /** 仅保存当前级补充内容 */
-  const saveOnly = async (q: Question, replyId: number) => {
-    setActing(`save-${q.id}`)
-    try {
-      await gql(
-        `mutation($rid: bigint!, $c: String!, $att: jsonb) {
-          update_reply_by_pk(pk_columns: { id: $rid }, _set: { content: $c, attachments: $att }) { id }
-        }`,
-        { rid: replyId, c: (contents[q.id] ?? '').trim(), att: (filesMap[q.id] ?? []).length > 0 ? filesMap[q.id] : null },
-      )
-      toast.success('已保存')
-      load()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  /** 当前级审核通过：保存补充内容并流转 */
-  const approve = async (q: Question, replyId: number, currentStage: number) => {
-    setActing(`approve-${q.id}`)
-    try {
-      const next = nextReviewStage(currentStage)
-      const done = next.status === 'published'
-      await gql(
-        `mutation($rid: bigint!, $c: String!, $st: String!, $stage: bigint!, $qid: bigint!, $qstatus: String!, $rec: review_record_insert_input!, $att: jsonb) {
-          update_reply_by_pk(pk_columns: { id: $rid }, _set: { content: $c, status: $st, current_stage: $stage, attachments: $att }) { id }
-          update_question_by_pk(pk_columns: { id: $qid }, _set: { status: $qstatus }) { id }
-          insert_review_record_one(object: $rec) { id }
-        }`,
-        {
-          rid: replyId,
-          c: (contents[q.id] ?? '').trim(),
-          st: next.status,
-          stage: next.current_stage,
-          qid: q.id,
-          qstatus: done ? 'replied' : 'in_review',
-          rec: {
-            project_id: project.id,
-            target_type: 'reply',
-            target_id: String(replyId),
-            level: myLevel,
-            reviewer: myName,
-            decision: 'approved',
-            comment: (comments[q.id] ?? '').trim() || null,
-          },
-          att: (filesMap[q.id] ?? []).length > 0 ? filesMap[q.id] : null,
-        },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: myName,
-        action: done ? '回复终审通过，已发送客户' : `回复 ${myLevel} 级审核通过，流转下一级`,
-        targetType: 'reply',
-        targetId: replyId,
-      })
-      toast.success(done ? '回复已通过终审并发送给客户' : '已通过，流转至下一级')
-      load()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  /* ---------------- 方案反馈处理 ---------------- */
-
   // 展平所有反馈链接下的反馈提交（新的在前），附带所属链接信息
   const feedbackItems = (project?.feedback_links ?? []).flatMap((l) =>
     (l.feedback_submissions ?? []).map((s) => ({ link: l, sub: s })),
   )
 
-  /** 调用「反馈回复起草」行为流：综合企业信息+梳理方案+反馈内容起草回复 */
+  /** 调用「反馈回复起草」行为流：综合企业信息+梳理方案+反馈内容起草回复，草稿自动写回审核链（旧草稿作废留痕） */
   const generateFbDraft = async (sub: FeedbackSubmission) => {
     setFbDrafting((p) => ({ ...p, [sub.id]: true }))
     try {
       const taskId = await createActionFlowTask(FEEDBACK_REPLY_FLOW_ID, { 反馈提交ID: sub.id })
-      const output = await waitActionFlowResult(taskId)
-      const text = typeof output['回复文本'] === 'string' ? (output['回复文本'] as string) : ''
-      if (!text.trim()) throw new Error('智能体未返回内容，请重试')
-      setFbContents((p) => ({ ...p, [sub.id]: text.trim() }))
-      toast.success('AI 草稿已生成，请审核修改后再提交')
+      await waitActionFlowResult(taskId)
+      toast.success('智能体草稿已生成并进入审核链，请审核修改')
+      load()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'AI 起草失败，请重试')
+      toast.error(e instanceof Error ? e.message : '智能体起草失败，请重试')
     } finally {
       setFbDrafting((p) => ({ ...p, [sub.id]: false }))
     }
   }
 
-  /** 起草反馈回复并进入审核链；反馈提交状态置为「回复中」 */
+  /** 手工起草反馈回复并进入审核链（智能体草稿不存在时的兜底）；反馈提交状态置为「回复中」 */
   const createFbReply = async (sub: FeedbackSubmission) => {
     const content = (fbContents[sub.id] ?? '').trim()
     if (!content) {
@@ -469,43 +319,85 @@ export default function ProjectReplies() {
         </CardContent>
       </Card>
 
-      {/* 提问与回复 */}
+      {/* 方案反馈 */}
       <div className="space-y-4">
-        <h2 className="text-base font-semibold text-slate-900">提问与回复（{project.questions.length}）</h2>
-        {project.questions.length === 0 && (
+        <h2 className="text-base font-semibold text-slate-900">方案反馈（{feedbackItems.length}）</h2>
+        {feedbackItems.length === 0 && (
           <p className="rounded-xl border border-dashed border-slate-300 bg-white py-10 text-center text-sm text-slate-400">
-            该项目暂无提问
+            该项目暂无方案反馈
           </p>
         )}
-        {[...project.questions].reverse().map((q, idx) => {
-          const reply = q.replies?.[0] ?? null
-          const isPendingReply = q.status !== 'replied' && (!reply || ['pending_l3', 'pending_l2', 'pending_l1'].includes(reply.status))
+        {[...feedbackItems].reverse().map(({ link, sub }, idx) => {
+          // 最新一份有效回复（排除已发布与已作废；已发布单独展示）
+          const publishedReply = (sub.feedback_replies ?? []).find((r) => r.status === 'published') ?? null
+          const reply = (sub.feedback_replies ?? []).find((r) => r.status !== 'published' && r.status !== 'superseded') ?? null
+          const isPendingReply =
+            sub.status !== 'replied' && (!reply || ['pending_l3', 'pending_l2', 'pending_l1'].includes(reply.status))
           const myTurn = isPrivileged
             ? isPendingReply
-            : q.status !== 'replied' && (!reply || reply.status === pendingStatusForLevel(myLevel))
+            : sub.status !== 'replied' && (!reply || reply.status === pendingStatusForLevel(myLevel))
           const isFinal = reply?.current_stage === 1
+          const textSections: { key: FeedbackOption; text: string | null }[] = [
+            { key: 'info_supplement', text: sub.info_supplement },
+            { key: 'execution_issues', text: sub.execution_issues },
+            { key: 'detail_request', text: sub.detail_request },
+            { key: 'result_feedback', text: sub.result_feedback },
+          ]
+          const supplement = sub.form_supplement ?? {}
           return (
-            <Card key={q.id}>
+            <Card key={sub.id}>
               <CardHeader className="pb-2">
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                  提问 {idx + 1}
-                  <QuestionStatusBadge status={q.status} />
+                  反馈 {idx + 1}
+                  <FeedbackSubmissionStatusBadge status={sub.status} />
                   {reply && <ReviewStatusBadge status={reply.status} />}
-                  <span className="ml-auto text-xs font-normal text-slate-400">{formatTime(q.created_at)}</span>
+                  <span className="text-xs font-normal text-slate-400">
+                    {((link.options ?? []) as FeedbackOption[]).map((o) => FEEDBACK_OPTION_LABEL[o] ?? o).join('、')}
+                  </span>
+                  <span className="ml-auto text-xs font-normal text-slate-400">{formatTime(sub.created_at)}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <p className="whitespace-pre-wrap rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-800">{q.content}</p>
-                <AttachmentView items={q.attachments} />
+                {/* 反馈内容 */}
+                <div className="space-y-3 rounded-lg bg-slate-50 px-4 py-3">
+                  {Object.keys(supplement).length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-slate-500">收集表补充信息</p>
+                      {Object.entries(supplement).map(([ft, fields]) =>
+                        Object.entries(fields ?? {}).map(([field, v]) => (
+                          <p key={`${ft}-${field}`} className="text-sm text-slate-700">
+                            <span className="text-slate-400">
+                              {ft === 'detailed' ? '详细版' : '基础版'} · {field} 补充：
+                            </span>
+                            {v}
+                          </p>
+                        )),
+                      )}
+                    </div>
+                  )}
+                  {textSections
+                    .filter((s) => s.text?.trim())
+                    .map((s) => (
+                      <div key={s.key} className="space-y-1">
+                        <p className="text-xs font-medium text-slate-500">{FEEDBACK_OPTION_LABEL[s.key]}</p>
+                        <p className="whitespace-pre-wrap text-sm text-slate-800">{s.text}</p>
+                      </div>
+                    ))}
+                  <p className="border-t border-slate-200 pt-2 text-xs text-slate-400">
+                    填写人：{sub.filler_name ?? '—'}
+                    {sub.filler_contact ? ` · ${sub.filler_contact}` : ''} · 链接状态：
+                    <FeedbackLinkStatusBadge status={link.status} />
+                  </p>
+                </div>
 
-                {q.status === 'replied' && reply ? (
+                {/* 回复区 */}
+                {sub.status === 'replied' && publishedReply ? (
                   <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-medium text-slate-500">老师回复（已发送）</p>
-                      <CopyTextButton text={reply.content} />
+                      <CopyTextButton text={publishedReply.content} />
                     </div>
-                    <p className="whitespace-pre-wrap text-sm text-slate-700">{reply.content}</p>
-                    <AttachmentView items={reply.attachments} />
+                    <p className="whitespace-pre-wrap text-sm text-slate-700">{publishedReply.content}</p>
                   </div>
                 ) : !reply ? (
                   <div className="space-y-3">
@@ -515,33 +407,28 @@ export default function ProjectReplies() {
                         size="sm"
                         variant="outline"
                         className="border-violet-200 text-violet-600 hover:bg-violet-50"
-                        disabled={acting !== null || !!aiDrafting[q.id]}
-                        onClick={() => generateDraft(q)}
+                        disabled={acting !== null || !!fbDrafting[sub.id]}
+                        onClick={() => generateFbDraft(sub)}
                       >
                         <Sparkles className="mr-1 h-3.5 w-3.5" /> 智能体起草
                       </Button>
                     </div>
-                    {aiDrafting[q.id] ? (
+                    {fbDrafting[sub.id] ? (
                       <AiDraftingPanel />
                     ) : (
                       <Textarea
                         rows={4}
-                        value={contents[q.id] ?? ''}
-                        onChange={(e) => setContents((p) => ({ ...p, [q.id]: e.target.value }))}
+                        value={fbContents[sub.id] ?? ''}
+                        onChange={(e) => setFbContents((p) => ({ ...p, [sub.id]: e.target.value }))}
                         placeholder="输入回复内容…"
                       />
                     )}
-                    <AttachmentPicker
-                      value={filesMap[q.id] ?? []}
-                      onChange={(v) => setFilesMap((p) => ({ ...p, [q.id]: v }))}
-                      disabled={acting !== null}
-                    />
                     <Button
                       className="bg-slate-900 hover:bg-slate-800"
                       disabled={acting !== null}
-                      onClick={() => createReply(q)}
+                      onClick={() => createFbReply(sub)}
                     >
-                      {acting === `create-${q.id}` ? (
+                      {acting === `fb-create-${sub.id}` ? (
                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       ) : (
                         <Send className="mr-1.5 h-4 w-4" />
@@ -553,51 +440,42 @@ export default function ProjectReplies() {
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <Label className="text-sm">
-                        回复内容（当前 {reply.current_stage} 级节点{myTurn ? ' · 待我处理，可补充修改' : ' · 非我的节点，只读'}）
+                        回复内容 v{reply.version}（当前 {reply.current_stage} 级节点{myTurn ? ' · 待我处理，可补充修改' : ' · 非我的节点，只读'}）
                       </Label>
                       {myTurn && (
                         <Button
                           size="sm"
                           variant="outline"
                           className="border-violet-200 text-violet-600 hover:bg-violet-50"
-                          disabled={acting !== null || !!aiDrafting[q.id]}
-                          onClick={() => generateDraft(q)}
-                          title="用 AI 重新起草，将覆盖当前回复内容"
+                          disabled={acting !== null || !!fbDrafting[sub.id]}
+                          onClick={() => generateFbDraft(sub)}
+                          title="用智能体重新起草，当前草稿将作废留痕"
                         >
                           <Sparkles className="mr-1 h-3.5 w-3.5" /> 智能体重写
                         </Button>
                       )}
                     </div>
-                    {aiDrafting[q.id] ? (
+                    {fbDrafting[sub.id] ? (
                       <AiDraftingPanel />
                     ) : (
                       <Textarea
                         rows={5}
-                        value={contents[q.id] ?? ''}
-                        onChange={(e) => setContents((p) => ({ ...p, [q.id]: e.target.value }))}
+                        value={fbContents[sub.id] ?? ''}
+                        onChange={(e) => setFbContents((p) => ({ ...p, [sub.id]: e.target.value }))}
                         disabled={!myTurn}
                       />
-                    )}
-                    {myTurn ? (
-                      <AttachmentPicker
-                        value={filesMap[q.id] ?? []}
-                        onChange={(v) => setFilesMap((p) => ({ ...p, [q.id]: v }))}
-                        disabled={acting !== null}
-                      />
-                    ) : (
-                      <AttachmentView items={reply.attachments} />
                     )}
                     {myTurn && (
                       <>
                         <Textarea
                           rows={2}
-                          value={comments[q.id] ?? ''}
-                          onChange={(e) => setComments((p) => ({ ...p, [q.id]: e.target.value }))}
+                          value={fbComments[sub.id] ?? ''}
+                          onChange={(e) => setFbComments((p) => ({ ...p, [sub.id]: e.target.value }))}
                           placeholder="本级审核备注（可选）…"
                         />
                         <div className="flex flex-wrap gap-3">
-                          <Button variant="outline" disabled={acting !== null} onClick={() => saveOnly(q, reply.id)}>
-                            {acting === `save-${q.id}` ? (
+                          <Button variant="outline" disabled={acting !== null} onClick={() => saveFbOnly(sub, reply.id)}>
+                            {acting === `fb-save-${sub.id}` ? (
                               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                             ) : (
                               <Save className="mr-1.5 h-4 w-4" />
@@ -607,9 +485,9 @@ export default function ProjectReplies() {
                           <Button
                             className="bg-green-600 hover:bg-green-700"
                             disabled={acting !== null}
-                            onClick={() => approve(q, reply.id, reply.current_stage)}
+                            onClick={() => approveFb(sub, link.id, reply)}
                           >
-                            {acting === `approve-${q.id}` ? (
+                            {acting === `fb-approve-${sub.id}` ? (
                               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                             ) : (
                               <Check className="mr-1.5 h-4 w-4" />
@@ -626,196 +504,13 @@ export default function ProjectReplies() {
           )
         })}
       </div>
-
-      {/* 方案反馈 */}
-      {feedbackItems.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-base font-semibold text-slate-900">方案反馈（{feedbackItems.length}）</h2>
-          {[...feedbackItems].reverse().map(({ link, sub }, idx) => {
-            const reply = sub.feedback_replies?.[0] ?? null
-            const isPendingReply =
-              sub.status !== 'replied' && (!reply || ['pending_l3', 'pending_l2', 'pending_l1'].includes(reply.status))
-            const myTurn = isPrivileged
-              ? isPendingReply
-              : sub.status !== 'replied' && (!reply || reply.status === pendingStatusForLevel(myLevel))
-            const isFinal = reply?.current_stage === 1
-            const textSections: { key: keyof FeedbackSubmission; text: string | null }[] = [
-              { key: 'info_supplement', text: sub.info_supplement },
-              { key: 'execution_issues', text: sub.execution_issues },
-              { key: 'detail_request', text: sub.detail_request },
-              { key: 'result_feedback', text: sub.result_feedback },
-            ]
-            const supplement = sub.form_supplement ?? {}
-            return (
-              <Card key={sub.id}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                    反馈 {idx + 1}
-                    <FeedbackSubmissionStatusBadge status={sub.status} />
-                    {reply && <ReviewStatusBadge status={reply.status} />}
-                    <span className="text-xs font-normal text-slate-400">
-                      {((link.options ?? []) as FeedbackOption[]).map((o) => FEEDBACK_OPTION_LABEL[o] ?? o).join('、')}
-                    </span>
-                    <span className="ml-auto text-xs font-normal text-slate-400">{formatTime(sub.created_at)}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* 反馈内容 */}
-                  <div className="space-y-3 rounded-lg bg-slate-50 px-4 py-3">
-                    {Object.keys(supplement).length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-medium text-slate-500">收集表补充信息</p>
-                        {Object.entries(supplement).map(([ft, fields]) =>
-                          Object.entries(fields ?? {}).map(([field, v]) => (
-                            <p key={`${ft}-${field}`} className="text-sm text-slate-700">
-                              <span className="text-slate-400">
-                                {ft === 'detailed' ? '详细版' : '基础版'} · {field} 补充：
-                              </span>
-                              {v}
-                            </p>
-                          )),
-                        )}
-                      </div>
-                    )}
-                    {textSections
-                      .filter((s) => s.text?.trim())
-                      .map((s) => (
-                        <div key={s.key} className="space-y-1">
-                          <p className="text-xs font-medium text-slate-500">
-                            {FEEDBACK_OPTION_LABEL[s.key as FeedbackOption]}
-                          </p>
-                          <p className="whitespace-pre-wrap text-sm text-slate-800">{s.text}</p>
-                        </div>
-                      ))}
-                    <p className="border-t border-slate-200 pt-2 text-xs text-slate-400">
-                      填写人：{sub.filler_name ?? '—'}
-                      {sub.filler_contact ? ` · ${sub.filler_contact}` : ''} · 链接状态：
-                      <FeedbackLinkStatusBadge status={link.status} />
-                    </p>
-                  </div>
-
-                  {/* 回复区 */}
-                  {sub.status === 'replied' && reply ? (
-                    <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-slate-500">老师回复（已发送）</p>
-                        <CopyTextButton text={reply.content} />
-                      </div>
-                      <p className="whitespace-pre-wrap text-sm text-slate-700">{reply.content}</p>
-                    </div>
-                  ) : !reply ? (
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label className="text-sm">起草回复（提交后按 {reviewLevel} 级审核链流转，每级可补充）</Label>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-violet-200 text-violet-600 hover:bg-violet-50"
-                          disabled={acting !== null || !!fbDrafting[sub.id]}
-                          onClick={() => generateFbDraft(sub)}
-                        >
-                          <Sparkles className="mr-1 h-3.5 w-3.5" /> 智能体起草
-                        </Button>
-                      </div>
-                      {fbDrafting[sub.id] ? (
-                        <AiDraftingPanel />
-                      ) : (
-                        <Textarea
-                          rows={4}
-                          value={fbContents[sub.id] ?? ''}
-                          onChange={(e) => setFbContents((p) => ({ ...p, [sub.id]: e.target.value }))}
-                          placeholder="输入回复内容…"
-                        />
-                      )}
-                      <Button
-                        className="bg-slate-900 hover:bg-slate-800"
-                        disabled={acting !== null}
-                        onClick={() => createFbReply(sub)}
-                      >
-                        {acting === `fb-create-${sub.id}` ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="mr-1.5 h-4 w-4" />
-                        )}
-                        提交回复进入审核
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label className="text-sm">
-                          回复内容（当前 {reply.current_stage} 级节点{myTurn ? ' · 待我处理，可补充修改' : ' · 非我的节点，只读'}）
-                        </Label>
-                        {myTurn && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-violet-200 text-violet-600 hover:bg-violet-50"
-                            disabled={acting !== null || !!fbDrafting[sub.id]}
-                            onClick={() => generateFbDraft(sub)}
-                            title="用 AI 重新起草，将覆盖当前回复内容"
-                          >
-                            <Sparkles className="mr-1 h-3.5 w-3.5" /> 智能体重写
-                          </Button>
-                        )}
-                      </div>
-                      {fbDrafting[sub.id] ? (
-                        <AiDraftingPanel />
-                      ) : (
-                        <Textarea
-                          rows={5}
-                          value={fbContents[sub.id] ?? ''}
-                          onChange={(e) => setFbContents((p) => ({ ...p, [sub.id]: e.target.value }))}
-                          disabled={!myTurn}
-                        />
-                      )}
-                      {myTurn && (
-                        <>
-                          <Textarea
-                            rows={2}
-                            value={fbComments[sub.id] ?? ''}
-                            onChange={(e) => setFbComments((p) => ({ ...p, [sub.id]: e.target.value }))}
-                            placeholder="本级审核备注（可选）…"
-                          />
-                          <div className="flex flex-wrap gap-3">
-                            <Button variant="outline" disabled={acting !== null} onClick={() => saveFbOnly(sub, reply.id)}>
-                              {acting === `fb-save-${sub.id}` ? (
-                                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                              ) : (
-                                <Save className="mr-1.5 h-4 w-4" />
-                              )}
-                              仅保存
-                            </Button>
-                            <Button
-                              className="bg-green-600 hover:bg-green-700"
-                              disabled={acting !== null}
-                              onClick={() => approveFb(sub, link.id, reply)}
-                            >
-                              {acting === `fb-approve-${sub.id}` ? (
-                                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                              ) : (
-                                <Check className="mr-1.5 h-4 w-4" />
-                              )}
-                              {isFinal ? '终审通过并发送' : '通过，流转下一级'}
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }
 
-/* ---------------- AI 智能体起草等待动画 ---------------- */
+/* ---------------- 智能体起草等待动画 ---------------- */
 
-const AI_PHASES = ['正在阅读企业基本信息…', '正在回顾梳理方案…', '正在翻阅历史问答…', '正在起草回复…']
+const AI_PHASES = ['正在阅读企业收集表信息…', '正在回顾梳理方案…', '正在理解企业反馈内容…', '正在起草回复…']
 
 function AiDraftingPanel() {
   const [phase, setPhase] = useState(0)
@@ -842,7 +537,7 @@ function AiDraftingPanel() {
         </div>
         <p className="text-sm font-medium text-violet-700">{AI_PHASES[phase]}</p>
         <p className="max-w-sm text-center text-xs leading-5 text-slate-400">
-          AI 正在综合「企业基本信息 + 梳理方案 + 历史问答」起草回复，通常需要 20-60 秒，请勿关闭页面
+          智能体正在综合「企业收集表信息 + 梳理方案 + 反馈内容」起草回复，通常需要 20-60 秒，请勿关闭页面
         </p>
       </div>
     </div>

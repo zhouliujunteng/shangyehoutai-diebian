@@ -18,7 +18,7 @@ export default function ServerLayout() {
   const menus = [
     { path: '/server', label: '项目总览', icon: LayoutDashboard, exact: true, show: isSuper || isL1Reviewer },
     { path: '/server/review', label: '审核工作台', icon: ClipboardCheck, show: true },
-    { path: '/server/replies', label: '回复处理', icon: MessageSquareReply, show: true },
+    { path: '/server/replies', label: '反馈处理', icon: MessageSquareReply, show: true },
     { path: '/server/accounts', label: '账号管理', icon: Users, show: isSuper },
   ].filter((m) => m.show)
 

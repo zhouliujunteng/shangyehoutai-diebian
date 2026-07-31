@@ -89,7 +89,10 @@ export default function ProjectsOverview() {
             review_assignments(order_by: { level: desc }) { id level reviewer project_id }
             submissions(order_by: { id: desc }, limit: 1) { id created_at }
             analyses(order_by: { id: desc }, limit: 1) { id status created_at }
-            questions(order_by: { id: desc }, limit: 1) { id status created_at }
+            feedback_links(order_by: { id: desc }, limit: 1) {
+              id status created_at
+              feedback_submissions(order_by: { id: desc }, limit: 1) { id status created_at }
+            }
           }
           account { username nickname }
         }`,

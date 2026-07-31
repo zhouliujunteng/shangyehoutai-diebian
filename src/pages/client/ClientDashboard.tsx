@@ -99,10 +99,13 @@ export default function ClientDashboard() {
             analyses(where: { status: { _eq: "published" } }, order_by: { id: desc }) {
               id status created_at
             }
-            questions {
+            feedback_links(order_by: { id: desc }) {
               id status
-              replies(where: { status: { _eq: "published" } }, order_by: { id: desc }) {
-                id status created_at
+              feedback_submissions(order_by: { id: desc }) {
+                id status
+                feedback_replies(where: { status: { _eq: "published" } }, order_by: { id: desc }) {
+                  id status created_at
+                }
               }
             }
           }

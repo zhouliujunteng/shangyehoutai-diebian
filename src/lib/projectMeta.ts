@@ -9,11 +9,17 @@ import type { Project } from './types'
 
 export interface ClientProjectExtra {
   analyses?: { id: number; status?: string; created_at?: string }[] | null
-  questions?:
+  feedback_links?:
     | {
         id: number
         status?: string
-        replies?: { id: number; status?: string; created_at?: string }[] | null
+        feedback_submissions?:
+          | {
+              id: number
+              status?: string
+              feedback_replies?: { id: number; status?: string; created_at?: string }[] | null
+            }[]
+          | null
       }[]
     | null
 }
@@ -46,15 +52,17 @@ export function clientDisplayStatus(p: ClientProjectMeta): string {
   return p.status
 }
 
-/** 项目最近一次对客户可见的更新时间：梳理报告发布 / 提问回复发布；无则返回 null */
+/** 项目最近一次对客户可见的更新时间：梳理报告发布 / 反馈回复发布；无则返回 null */
 export function projectUpdatedAt(p: ClientProjectExtra): string | null {
   let latest = 0
   for (const a of p.analyses ?? []) {
     if (a.status === 'published') latest = Math.max(latest, tsOf(a.created_at))
   }
-  for (const q of p.questions ?? []) {
-    for (const r of q.replies ?? []) {
-      if (r.status === 'published') latest = Math.max(latest, tsOf(r.created_at))
+  for (const l of p.feedback_links ?? []) {
+    for (const s of l.feedback_submissions ?? []) {
+      for (const r of s.feedback_replies ?? []) {
+        if (r.status === 'published') latest = Math.max(latest, tsOf(r.created_at))
+      }
     }
   }
   return latest > 0 ? new Date(latest).toISOString() : null
@@ -65,18 +73,28 @@ export function projectSortTs(p: ClientProjectMeta): number {
   return tsOf(projectUpdatedAt(p)) || tsOf(p.created_at)
 }
 
-/** 后台视角的项目动态：资料提交 / 报告新版本 / 客户提问，取三者最新时间 */
+/** 后台视角的项目动态：资料提交 / 报告新版本 / 方案反馈，取三者最新时间 */
 export interface ServerProjectExtra {
   submissions?: { id: number; created_at?: string }[] | null
   analyses?: { id: number; status?: string; created_at?: string }[] | null
-  questions?: { id: number; status?: string; created_at?: string }[] | null
+  feedback_links?:
+    | {
+        id: number
+        status?: string
+        created_at?: string
+        feedback_submissions?: { id: number; status?: string; created_at?: string }[] | null
+      }[]
+    | null
 }
 
 export function serverActivityAt(p: ServerProjectExtra): string | null {
   let latest = 0
   for (const s of p.submissions ?? []) latest = Math.max(latest, tsOf(s.created_at))
   for (const a of p.analyses ?? []) latest = Math.max(latest, tsOf(a.created_at))
-  for (const q of p.questions ?? []) latest = Math.max(latest, tsOf(q.created_at))
+  for (const l of p.feedback_links ?? []) {
+    latest = Math.max(latest, tsOf(l.created_at))
+    for (const s of l.feedback_submissions ?? []) latest = Math.max(latest, tsOf(s.created_at))
+  }
   return latest > 0 ? new Date(latest).toISOString() : null
 }
 

@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
-import { gql, logOperation, ANALYZE_FLOW_ID } from '@/lib/graphql'
+import { gql, logOperation, createActionFlowTask, ANALYZE_FLOW_ID, FEEDBACK_REPLY_FLOW_ID } from '@/lib/graphql'
 import { buildReportDocument, downloadWord, downloadPdf } from '@/lib/exportReport'
-import { AttachmentPicker, AttachmentView, type AttachmentItem } from '@/lib/attachments'
 import { useAuth } from '@/lib/auth'
 import {
   formatTime,
@@ -13,16 +12,15 @@ import {
   FEEDBACK_OPTION_DESC,
   FEEDBACK_OPTION_ORDER,
 } from '@/lib/labels'
-import { projectDisplayName, type Analysis, type CollectLink, type FeedbackLink, type FeedbackOption, type Project, type Question, type Submission } from '@/lib/types'
+import { projectDisplayName, type Analysis, type CollectLink, type FeedbackLink, type FeedbackOption, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
 import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
-import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, QuestionStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
+import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import {
@@ -31,10 +29,8 @@ import {
   RefreshCw,
   Loader2,
   Link2,
-  Send,
   FileDown,
   Printer,
-  MessageSquarePlus,
   FileEdit,
   Rocket,
   XCircle,
@@ -48,7 +44,6 @@ interface ProjectFull extends Project {
   collect_links: CollectLink[]
   submissions: Submission[]
   analyses: Analysis[]
-  questions: Question[]
   feedback_links: FeedbackLink[]
 }
 
@@ -70,14 +65,11 @@ export default function ProjectDetail() {
             collect_links(order_by: { id: desc }) { id token status expires_at project_id created_at }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
-            questions(order_by: { id: desc }) {
-              id content status attachments project_id created_at
-              replies(order_by: { id: desc }) { id content status attachments current_stage question_id created_at }
-            }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
-                id status filler_name filler_contact created_at
+                id form_supplement info_supplement execution_issues detail_request result_feedback
+                status filler_name filler_contact created_at
                 feedback_replies(order_by: { id: desc }) { id content status created_at }
               }
             }
@@ -177,23 +169,6 @@ export default function ProjectDetail() {
             username={auth!.account.username}
             onChanged={refresh}
           />
-        )}
-      </div>
-
-      <div className="no-print">
-        {publishedAnalysis ? (
-          <QuestionsCard project={project} questions={project.questions} username={auth!.account.username} onChanged={refresh} />
-        ) : (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageSquarePlus className="h-4 w-4" /> 提问
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="py-4 text-center text-sm text-slate-400">梳理结果发布后，可就报告内容向服务团队提问</p>
-            </CardContent>
-          </Card>
         )}
       </div>
     </div>
@@ -672,122 +647,9 @@ function AnalysisCard({
   )
 }
 
-/* ---------------- 提问区 ---------------- */
-
-function QuestionsCard({
-  project,
-  questions,
-  username,
-  onChanged,
-}: {
-  project: Project
-  questions: Question[]
-  username: string
-  onChanged: () => void
-}) {
-  const [content, setContent] = useState('')
-  const [files, setFiles] = useState<AttachmentItem[]>([])
-  const [sending, setSending] = useState(false)
-
-  const sorted = useMemo(() => questions, [questions])
-
-  const send = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!content.trim() && files.length === 0) {
-      toast.error('请输入问题内容或添加附件')
-      return
-    }
-    setSending(true)
-    try {
-      await gql(
-        `mutation($obj: question_insert_input!) {
-          insert_question_one(object: $obj) { id }
-        }`,
-        {
-          obj: {
-            project_id: project.id,
-            content: content.trim(),
-            status: 'pending',
-            attachments: files.length > 0 ? files : null,
-          },
-        },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: username,
-        action: '发起提问',
-        targetType: 'question',
-        detail: { content: content.trim().slice(0, 100), attachments: files.length },
-      })
-      setContent('')
-      setFiles([])
-      toast.success('提问已提交，请等待回复')
-      onChanged()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '提交失败')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageSquarePlus className="h-4 w-4" /> 提问
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <form onSubmit={send} className="space-y-2">
-          <Textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} placeholder="就梳理结果或项目情况向服务团队提问…" />
-          <AttachmentPicker value={files} onChange={setFiles} disabled={sending} />
-          <Button type="submit" size="sm" className="bg-slate-900 hover:bg-slate-800" disabled={sending}>
-            {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
-            提交问题
-          </Button>
-        </form>
-
-        {sorted.length === 0 ? (
-          <p className="py-4 text-center text-sm text-slate-400">暂无提问</p>
-        ) : (
-          <div className="space-y-4">
-            {sorted.map((q) => {
-              const publishedReply = q.replies?.find((r) => r.status === 'published')
-              return (
-                <div key={q.id} className="rounded-lg border border-slate-200">
-                  <div className="flex items-start justify-between gap-3 px-4 py-3">
-                    <p className="whitespace-pre-wrap text-sm text-slate-800">{q.content}</p>
-                    <QuestionStatusBadge status={q.status} />
-                  </div>
-                  {q.attachments && q.attachments.length > 0 && (
-                    <div className="border-t border-slate-100 px-4 py-3">
-                      <AttachmentView items={q.attachments} />
-                    </div>
-                  )}
-                  <div className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">{formatTime(q.created_at)}</div>
-                  {q.status === 'replied' && publishedReply && (
-                    <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-slate-500">老师回复</p>
-                        <CopyTextButton text={publishedReply.content} />
-                      </div>
-                      <p className="whitespace-pre-wrap text-sm text-slate-700">{publishedReply.content}</p>
-                      <AttachmentView items={publishedReply.attachments} />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
 /* ---------------- 方案反馈 ---------------- */
 
-const FEEDBACK_LINK_DAYS = 7
+const FEEDBACK_LINK_DAYS = 3
 
 function FeedbackCard({
   project,
@@ -795,7 +657,7 @@ function FeedbackCard({
   username,
   onChanged,
 }: {
-  project: Project
+  project: Project & { submissions: Submission[] }
   links: FeedbackLink[]
   username: string
   onChanged: () => void
@@ -803,6 +665,12 @@ function FeedbackCard({
   const [picking, setPicking] = useState(false)
   const [selected, setSelected] = useState<FeedbackOption[]>([])
   const [acting, setActing] = useState<string | null>(null)
+
+  // 周期门控：有进行中（未过期）的链接、或有待确认/回复中的反馈时，不可签发新链接
+  const busyCycle = links.some((l) => {
+    if (l.status === 'active' && new Date(l.expires_at).getTime() >= Date.now()) return true
+    return (l.feedback_submissions ?? []).some((s) => s.status === 'submitted' || s.status === 'confirmed')
+  })
 
   const fullUrl = (token: string) => `${window.location.origin}${window.location.pathname}#/f/${token}`
 
@@ -913,6 +781,60 @@ function FeedbackCard({
     }
   }
 
+  /** 客户经理确认反馈：①补充表单合并进收集表（标注后补充）②状态转 confirmed ③触发智能体起草回复（自动写回审核链） */
+  const confirmSubmission = async (s: FeedbackSubmission) => {
+    setActing(`confirm-${s.id}`)
+    try {
+      const sup = s.form_supplement
+      if (sup && typeof sup === 'object') {
+        for (const [formType, fields] of Object.entries(sup)) {
+          const entries = Object.entries(fields ?? {}).filter(([, v]) => String(v).trim())
+          if (entries.length === 0) continue
+          // 合并到该项目该表单类型的最新一条收集表提交
+          const cur = await gql<{ submission: { id: number; answers: Record<string, string> | null }[] }>(
+            `query($pid: bigint!, $ft: String!) {
+              submission(where: { project_id: { _eq: $pid }, form_type: { _eq: $ft } }, order_by: { id: desc }, limit: 1) { id answers }
+            }`,
+            { pid: project.id, ft: formType },
+          )
+          const row = cur.submission[0]
+          if (!row) continue
+          const answers = { ...(row.answers ?? {}) }
+          for (const [k, v] of entries) {
+            const t = String(v).trim()
+            answers[k] = answers[k] ? `${answers[k]}\n【后补充】${t}` : `【后补充】${t}`
+          }
+          await gql(
+            `mutation($id: bigint!, $set: submission_set_input!) {
+              update_submission_by_pk(pk_columns: { id: $id }, _set: $set) { id }
+            }`,
+            { id: row.id, set: { answers } },
+          )
+        }
+      }
+      await gql(
+        `mutation($sid: bigint!) {
+          update_feedback_submission_by_pk(pk_columns: { id: $sid }, _set: { status: "confirmed" }) { id }
+        }`,
+        { sid: s.id },
+      )
+      await createActionFlowTask(FEEDBACK_REPLY_FLOW_ID, { 反馈提交ID: s.id })
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '确认方案反馈（触发回复起草）',
+        targetType: 'feedback_submission',
+        targetId: s.id,
+      })
+      toast.success('已确认，服务团队回复后将在此展示')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '确认失败，请重试')
+    } finally {
+      setActing(null)
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -991,6 +913,24 @@ function FeedbackCard({
                           <FeedbackSubmissionStatusBadge status={s.status} />
                           <span className="ml-auto text-xs text-slate-400">{formatTime(s.created_at)}</span>
                         </div>
+                        <FeedbackContentView submission={s} />
+                        {s.status === 'submitted' && (
+                          <div className="flex items-center gap-3 border-t border-slate-200 pt-2">
+                            <p className="text-xs text-slate-400">请核对反馈内容，确认后服务团队将跟进回复</p>
+                            <Button
+                              size="sm"
+                              className="ml-auto h-7 bg-slate-900 hover:bg-slate-800"
+                              disabled={acting === `confirm-${s.id}`}
+                              onClick={() => confirmSubmission(s)}
+                            >
+                              {acting === `confirm-${s.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+                              确认
+                            </Button>
+                          </div>
+                        )}
+                        {s.status === 'confirmed' && (
+                          <p className="border-t border-slate-200 pt-2 text-xs text-slate-400">已确认，服务团队回复中…</p>
+                        )}
                         {s.status === 'replied' && publishedReply && (
                           <div className="space-y-2 border-t border-slate-200 pt-2">
                             <div className="flex items-center justify-between gap-2">
@@ -1039,6 +979,10 @@ function FeedbackCard({
               </Button>
             </div>
           </div>
+        ) : busyCycle ? (
+          <p className="rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-400">
+            当前有一轮反馈正在进行中（链接待填写 / 待确认 / 回复中），本轮回复完成后才能签发新链接；如需更换反馈内容，可先撤回上方链接再重新签发。
+          </p>
         ) : (
           <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
             <Link2 className="mr-1.5 h-4 w-4" /> 签发反馈链接
@@ -1046,5 +990,42 @@ function FeedbackCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/* ---------------- 反馈内容展示 ---------------- */
+
+function FeedbackContentView({ submission: s }: { submission: FeedbackSubmission }) {
+  const items: { label: string; text: string }[] = []
+  if (s.form_supplement && typeof s.form_supplement === 'object') {
+    for (const [ft, fields] of Object.entries(s.form_supplement)) {
+      const entries = Object.entries(fields ?? {}).filter(([, v]) => String(v).trim())
+      if (entries.length > 0) {
+        items.push({
+          label: `${FEEDBACK_OPTION_LABEL.form_supplement}（${ft === 'detailed' ? '详细版' : '基础版'}）`,
+          text: entries.map(([k, v]) => `${k}：${String(v).trim()}`).join('\n'),
+        })
+      }
+    }
+  }
+  const textMap: [FeedbackOption, string | null][] = [
+    ['info_supplement', s.info_supplement],
+    ['execution_issues', s.execution_issues],
+    ['detail_request', s.detail_request],
+    ['result_feedback', s.result_feedback],
+  ]
+  for (const [key, val] of textMap) {
+    if (val?.trim()) items.push({ label: FEEDBACK_OPTION_LABEL[key], text: val.trim() })
+  }
+  if (items.length === 0) return null
+  return (
+    <div className="space-y-2 border-t border-slate-200 pt-2">
+      {items.map((it) => (
+        <div key={it.label}>
+          <p className="text-xs font-medium text-slate-500">{it.label}</p>
+          <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">{it.text}</p>
+        </div>
+      ))}
+    </div>
   )
 }
