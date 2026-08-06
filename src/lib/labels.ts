@@ -137,3 +137,12 @@ export const FEEDBACK_SUBMISSION_STATUS_LABEL: Record<FeedbackSubmissionStatus, 
   confirmed: '回复中',
   replied: '已回复',
 }
+
+/* ---------- 音频转写填表 ---------- */
+
+export const AUDIO_STATUS_LABEL: Record<string, string> = {
+  uploaded: '排队中',
+  processing: '整理中',
+  done: '已完成',
+  failed: '失败',
+}

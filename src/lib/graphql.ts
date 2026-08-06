@@ -17,6 +17,9 @@ export const PARTIAL_EDIT_FLOW_ID = '139c9fc1-2cd4-46d6-bb5e-f28a52fa6fa3'
 /** 「反馈回复起草」ActionFlow ID（异步执行：汇总企业信息+方案+反馈内容 → AI 起草反馈回复） */
 export const FEEDBACK_REPLY_FLOW_ID = 'ff40034e-e1d8-4e2c-bb3c-1f839208daf0'
 
+/** 「音频转写填表」ActionFlow ID（异步执行：音频 URL → 扣子转写双人对话 → AI 整理填写详细版收集表；已有已发布报告时自动触发重梳） */
+export const AUDIO_FILL_FLOW_ID = 'f9f268ac-e680-4712-b98a-a62e0cd8bdda'
+
 /** 同步调用行为流（按最新版本），失败抛错 */
 export async function invokeActionFlow(flowId: string, args: Record<string, unknown>): Promise<unknown> {
   const data = await gql<{ fz_invoke_action_flow_default_by_latest_version: unknown }>(

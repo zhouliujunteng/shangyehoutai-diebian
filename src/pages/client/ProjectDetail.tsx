@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
-import { gql, logOperation, createActionFlowTask, ANALYZE_FLOW_ID, FEEDBACK_REPLY_FLOW_ID } from '@/lib/graphql'
+import { gql, logOperation, createActionFlowTask, ANALYZE_FLOW_ID, FEEDBACK_REPLY_FLOW_ID, AUDIO_FILL_FLOW_ID } from '@/lib/graphql'
 import { buildReportDocument, downloadWord, downloadPdf } from '@/lib/exportReport'
+import { uploadFile } from '@/lib/upload'
 import { useAuth } from '@/lib/auth'
 import {
   formatTime,
@@ -11,10 +12,11 @@ import {
   FEEDBACK_OPTION_LABEL,
   FEEDBACK_OPTION_DESC,
   FEEDBACK_OPTION_ORDER,
+  AUDIO_STATUS_LABEL,
 } from '@/lib/labels'
-import { projectDisplayName, type Analysis, type CollectLink, type FeedbackLink, type FeedbackOption, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
+import { projectDisplayName, type Analysis, type AudioRecord, type FeedbackLink, type FeedbackOption, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
 import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
-import { ClientProjectStatusBadge as ProjectStatusBadge, LinkStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
+import { ClientProjectStatusBadge as ProjectStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import { Button } from '@/components/ui/button'
@@ -22,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
@@ -31,20 +34,19 @@ import {
   Link2,
   FileDown,
   Printer,
-  FileEdit,
   Rocket,
-  XCircle,
   Check,
   Pencil,
   ListChecks,
   Ban,
+  Mic,
 } from 'lucide-react'
 
 interface ProjectFull extends Project {
-  collect_links: CollectLink[]
   submissions: Submission[]
   analyses: Analysis[]
   feedback_links: FeedbackLink[]
+  audio_records: AudioRecord[]
 }
 
 export default function ProjectDetail() {
@@ -62,9 +64,9 @@ export default function ProjectDetail() {
         `query($id: bigint!) {
           project_by_pk(id: $id) {
             id name remark status review_level current_analysis_id created_at
-            collect_links(order_by: { id: desc }) { id token status expires_at project_id created_at }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
+            audio_records(order_by: { id: desc }) { id file_name audio_url file_id transcript status error_message project_id created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -98,7 +100,6 @@ export default function ProjectDetail() {
     return () => clearInterval(t)
   }, [])
 
-  const link = project?.collect_links[0] ?? null
   const latestAnalysis = project?.analyses[0] ?? null
   // 客户端展示以「当前版本」指针为准：指针所指版本已发布才展示；无指针回退到最新已发布版本
   const currentId = project?.current_analysis_id ?? null
@@ -121,7 +122,7 @@ export default function ProjectDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="no-print flex items-center gap-3">
+      <div className="no-print flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate('/client')}>
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
@@ -130,19 +131,16 @@ export default function ProjectDetail() {
         </Button>
         <h1 className="text-xl font-bold text-slate-900">{projectDisplayName(project)}</h1>
         <ProjectStatusBadge status={clientDisplayStatus(project)} />
+        <RemarkEditor project={project} onChanged={refresh} />
       </div>
 
       <div className="no-print">
-        {/* 梳理报告发布后：收集链接已完成使命，整个区域不再展示 */}
-        {!publishedAnalysis && (
-          <CollectLinkCard
-            link={link}
-            project={project}
-            actionLoading={actionLoading}
-            setActionLoading={setActionLoading}
-            onChanged={refresh}
-          />
-        )}
+        <AudioCard
+          project={project}
+          records={project.audio_records}
+          username={auth!.account.username}
+          onChanged={refresh}
+        />
       </div>
 
       <div className="no-print">
@@ -152,14 +150,13 @@ export default function ProjectDetail() {
       <div className="no-print">
         <ActionsCard
           project={project}
-          link={link}
           actionLoading={actionLoading}
           setActionLoading={setActionLoading}
           onChanged={refresh}
         />
       </div>
 
-      <AnalysisCard project={project} latestAnalysis={latestAnalysis} publishedAnalysis={publishedAnalysis} />
+      <AnalysisCard project={project} analyses={project.analyses} latestAnalysis={latestAnalysis} publishedAnalysis={publishedAnalysis} />
 
       <div className="no-print">
         {publishedAnalysis && (
@@ -172,134 +169,6 @@ export default function ProjectDetail() {
         )}
       </div>
     </div>
-  )
-}
-
-/* ---------------- 收集链接 ---------------- */
-
-function CollectLinkCard({
-  link,
-  project,
-  actionLoading,
-  setActionLoading,
-  onChanged,
-}: {
-  link: CollectLink | null
-  project: Project
-  actionLoading: string | null
-  setActionLoading: (v: string | null) => void
-  onChanged: () => void
-}) {
-  const { auth } = useAuth()
-  if (!link) {
-    return (
-      <Card>
-        <CardContent className="py-6 text-sm text-slate-400">暂无收集链接</CardContent>
-      </Card>
-    )
-  }
-  // 报告生成后（梳理中/审核中/已发布）：链接关闭，项目信息不可再改
-  const frozen = ['analyzing', 'in_review', 'published'].includes(project.status)
-  const expired = link.status === 'expired' || new Date(link.expires_at).getTime() < Date.now()
-  const fullUrl = `${window.location.origin}${window.location.pathname}#/f/${link.token}`
-
-  const msLeft = new Date(link.expires_at).getTime() - Date.now()
-  const days = Math.floor(msLeft / 86400000)
-  const hours = Math.floor((msLeft % 86400000) / 3600000)
-  const countdown = expired ? '已过期' : days > 0 ? `剩余 ${days} 天 ${hours} 小时` : `剩余 ${hours} 小时`
-
-  const copy = async () => {
-    // 复制时附带邀请话术，方便客户直接转发给填写人；备注为内部信息，不带入话术
-    const entName = project.name.trim()
-    const inviteText = [
-      '【企业信息收集邀请】',
-      entName
-        ? `你好，${entName} 的服务团队邀请你填写企业信息收集表。`
-        : '你好，服务团队邀请你填写企业信息收集表。',
-      `填写链接（3 天内有效，仅可提交一次）：${fullUrl}`,
-    ].join('\n')
-    try {
-      await navigator.clipboard.writeText(inviteText)
-      toast.success('邀请话术和链接已复制，可直接转发给填写人')
-    } catch {
-      toast.info(fullUrl)
-    }
-  }
-
-  const regenerate = async () => {
-    setActionLoading('regen')
-    try {
-      await gql(
-        `mutation($id: bigint!, $token: String!, $exp: timestamptz!) {
-          update_collect_link_by_pk(pk_columns: { id: $id }, _set: { token: $token, expires_at: $exp, status: "active" }) { id }
-        }`,
-        { id: link.id, token: randomToken(), exp: plusDaysISO(3) },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: auth!.account.username,
-        action: '重新签发收集链接',
-        targetType: 'collect_link',
-        targetId: link.id,
-      })
-      toast.success('已重新签发链接（3 天有效）')
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Link2 className="h-4 w-4" /> 收集链接
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {frozen ? (
-          <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            项目信息已提交梳理，收集链接已关闭，不可再复制或修改。如需变更请联系服务团队。
-          </p>
-        ) : (
-          <>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <code className="flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 border border-slate-200">
-                {fullUrl}
-              </code>
-              <Button variant="outline" size="sm" onClick={copy} className="shrink-0">
-                <Copy className="mr-1 h-4 w-4" /> 复制
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-              <LinkStatusBadge status={expired ? 'expired' : link.status} />
-              <span>{countdown}</span>
-              <span className="text-slate-400">到期时间 {formatTime(link.expires_at)}</span>
-              <RemarkEditor project={project} onChanged={onChanged} />
-              {expired && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-amber-300 text-amber-700 hover:bg-amber-50"
-                  disabled={actionLoading === 'regen'}
-                  onClick={regenerate}
-                >
-                  {actionLoading === 'regen' ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
-                  重新签发
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-        {frozen && (
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-            <RemarkEditor project={project} onChanged={onChanged} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
   )
 }
 
@@ -377,7 +246,7 @@ function SubmissionsCard({ submissions }: { submissions: Submission[] }) {
       </CardHeader>
       <CardContent>
         {submissions.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">企业尚未填写，复制上方链接发送给填写人</p>
+          <p className="py-6 text-center text-sm text-slate-400">尚未整理企业信息，请先上传面谈音频</p>
         ) : (
           <Tabs defaultValue={basics.length > 0 ? 'basic' : 'detailed'}>
             <TabsList>
@@ -397,96 +266,27 @@ function SubmissionsCard({ submissions }: { submissions: Submission[] }) {
   )
 }
 
-/* ---------------- 操作 ---------------- */
+/* ---------------- 操作（提交梳理） ---------------- */
 
 function ActionsCard({
   project,
-  link,
   actionLoading,
   setActionLoading,
   onChanged,
 }: {
   project: Project & { submissions: Submission[] }
-  link: CollectLink | null
   actionLoading: string | null
   setActionLoading: (v: string | null) => void
   onChanged: () => void
 }) {
   const { auth } = useAuth()
   const hasSubmission = project.submissions.length > 0
-  // 提交梳理后（梳理中/审核中/已发布）冻结补充通道，项目基本信息不可再改
-  const frozen = ['analyzing', 'in_review', 'published'].includes(project.status)
-  const canSupplement = !!link && (link.status === 'submitted' || link.status === 'expired') && project.status !== 'supplementing' && !frozen
-  const canCloseSupplement = !!link && link.status === 'supplementing'
   const canSubmit = hasSubmission && ['created', 'collecting', 'pending_confirm', 'supplementing'].includes(project.status)
-
-  const doCloseSupplement = async () => {
-    if (!link) return
-    setActionLoading('close_supplement')
-    try {
-      await gql(
-        `mutation($lid: bigint!, $pid: bigint!) {
-          update_collect_link_by_pk(pk_columns: { id: $lid }, _set: { status: "submitted" }) { id }
-          update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "pending_confirm" }) { id }
-        }`,
-        { lid: link.id, pid: project.id },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: auth!.account.username,
-        action: '关闭补充通道',
-        targetType: 'collect_link',
-        targetId: link.id,
-      })
-      toast.success('已关闭补充通道，填写人将无法再通过该链接修改')
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const doSupplement = async () => {
-    if (!link) return
-    setActionLoading('supplement')
-    try {
-      await gql(
-        `mutation($lid: bigint!, $pid: bigint!, $exp: timestamptz!) {
-          update_collect_link_by_pk(pk_columns: { id: $lid }, _set: { status: "supplementing", expires_at: $exp }) { id }
-          update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "supplementing" }) { id }
-        }`,
-        { lid: link.id, pid: project.id, exp: plusDaysISO(3) },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: auth!.account.username,
-        action: '开启补充填写',
-        targetType: 'collect_link',
-        targetId: link.id,
-      })
-      toast.success('已开启补充模式，请将链接重新发送给填写人')
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败')
-    } finally {
-      setActionLoading(null)
-    }
-  }
 
   const doSubmit = async () => {
     setActionLoading('submit')
     try {
       // 状态置为「梳理中」并触发「项目梳理」ActionFlow（异步：汇总信息 → AI 梳理 → 写回报告并转入审核）
-      // 同时关闭收集链接：报告生成后项目信息不可再修改
-      if (link) {
-        await gql(
-          `mutation($lid: bigint!) {
-            update_collect_link_by_pk(pk_columns: { id: $lid }, _set: { status: "submitted" }) { id }
-          }`,
-          { lid: link.id },
-        )
-      }
       await gql(
         `mutation($pid: bigint!, $fid: String!, $args: Json!) {
           update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "analyzing" }) { id }
@@ -510,37 +310,19 @@ function ActionsCard({
     }
   }
 
-  if (!canSupplement && !canCloseSupplement && !canSubmit) return null
+  if (!canSubmit) return null
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">操作</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-3">
-        {canSupplement && (
-          <Button variant="outline" disabled={actionLoading === 'supplement'} onClick={doSupplement}>
-            {actionLoading === 'supplement' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FileEdit className="mr-1.5 h-4 w-4" />}
-            补充
-          </Button>
-        )}
-        {canCloseSupplement && (
-          <Button
-            variant="outline"
-            className="border-orange-300 text-orange-700 hover:bg-orange-50"
-            disabled={actionLoading === 'close_supplement'}
-            onClick={doCloseSupplement}
-          >
-            {actionLoading === 'close_supplement' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <XCircle className="mr-1.5 h-4 w-4" />}
-            关闭补充通道
-          </Button>
-        )}
-        {canSubmit && (
-          <Button className="bg-slate-900 hover:bg-slate-800" disabled={actionLoading === 'submit'} onClick={doSubmit}>
-            {actionLoading === 'submit' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Rocket className="mr-1.5 h-4 w-4" />}
-            提交梳理
-          </Button>
-        )}
+      <CardContent className="space-y-3">
+        <p className="text-sm text-slate-500">请核对上方企业信息，确认完整无误后提交梳理；提交后信息不可再修改。</p>
+        <Button className="bg-slate-900 hover:bg-slate-800" disabled={actionLoading === 'submit'} onClick={doSubmit}>
+          {actionLoading === 'submit' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Rocket className="mr-1.5 h-4 w-4" />}
+          确认信息完整，提交梳理
+        </Button>
       </CardContent>
     </Card>
   )
@@ -555,45 +337,51 @@ function stripInternalRef(content: string): string {
 
 function AnalysisCard({
   project,
+  analyses,
   latestAnalysis,
   publishedAnalysis,
 }: {
   project: Project
+  analyses: Analysis[]
   latestAnalysis: Analysis | null
   publishedAnalysis: Analysis | null
 }) {
   const [exportingPdf, setExportingPdf] = useState(false)
+  // 历史版本：全部已发布版本（新→旧）；默认看「当前版本」指针所指（即最新交付版本），旧版本随时可回看
+  const publishedVersions = analyses.filter((a) => a.status === 'published')
+  const [viewId, setViewId] = useState<number | null>(null)
+  const viewed = (viewId != null ? publishedVersions.find((a) => a.id === viewId) : null) ?? publishedAnalysis
 
   const buildDoc = () => {
-    if (!publishedAnalysis) return null
+    if (!viewed) return null
     return buildReportDocument(
       {
         enterpriseName: projectDisplayName(project),
-        version: publishedAnalysis.version,
-        generatedAt: formatTime(publishedAnalysis.published_at ?? publishedAnalysis.created_at),
+        version: viewed.version,
+        generatedAt: formatTime(viewed.published_at ?? viewed.created_at),
       },
-      stripInternalRef(publishedAnalysis.content),
+      stripInternalRef(viewed.content),
     )
   }
 
   const exportWord = () => {
     const doc = buildDoc()
-    if (!doc || !publishedAnalysis) return
-    downloadWord(doc, `${projectDisplayName(project)}-梳理报告-v${publishedAnalysis.version}.doc`)
+    if (!doc || !viewed) return
+    downloadWord(doc, `${projectDisplayName(project)}-梳理报告-v${viewed.version}.doc`)
   }
 
   const exportPdf = async () => {
-    if (!publishedAnalysis) return
+    if (!viewed) return
     setExportingPdf(true)
     try {
       await downloadPdf(
         {
           enterpriseName: projectDisplayName(project),
-          version: publishedAnalysis.version,
-          generatedAt: formatTime(publishedAnalysis.published_at ?? publishedAnalysis.created_at),
+          version: viewed.version,
+          generatedAt: formatTime(viewed.published_at ?? viewed.created_at),
         },
-        stripInternalRef(publishedAnalysis.content),
-        `${projectDisplayName(project)}-梳理报告-v${publishedAnalysis.version}.pdf`,
+        stripInternalRef(viewed.content),
+        `${projectDisplayName(project)}-梳理报告-v${viewed.version}.pdf`,
       )
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'PDF 导出失败')
@@ -605,13 +393,31 @@ function AnalysisCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           梳理结果
           {latestAnalysis && (
             <span className="text-sm font-normal text-slate-500">
               v{latestAnalysis.version} · {latestAnalysis.status === 'published' ? '已梳理' : '梳理中'}
               {latestAnalysis.status === 'published' &&
                 ` · 梳理时间 ${formatTime(latestAnalysis.published_at ?? latestAnalysis.created_at)}`}
+            </span>
+          )}
+          {publishedVersions.length > 1 && (
+            <span className="ml-auto flex items-center gap-2 text-sm font-normal text-slate-500">
+              历史版本
+              <Select value={String(viewed?.id ?? '')} onValueChange={(v) => setViewId(Number(v))}>
+                <SelectTrigger className="h-8 w-44 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {publishedVersions.map((a) => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      v{a.version} · {formatTime(a.published_at ?? a.created_at)}
+                      {publishedAnalysis?.id === a.id ? '（当前）' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </span>
           )}
         </CardTitle>
@@ -621,11 +427,16 @@ function AnalysisCard({
           <p className="py-6 text-center text-sm text-slate-400">
             {project.status === 'analyzing' ? '梳理中' : '尚未提交梳理'}
           </p>
-        ) : publishedAnalysis ? (
+        ) : viewed ? (
           <div className="space-y-4">
+            {viewed.id !== publishedAnalysis?.id && (
+              <p className="rounded-lg bg-slate-50 px-4 py-2 text-xs text-slate-500">
+                正在查看历史版本 v{viewed.version}（基于此前较简略的信息梳理）；当前交付版本为 v{publishedAnalysis?.version}。
+              </p>
+            )}
             <div className="markdown-body rounded-lg border border-slate-200 bg-white p-5">
               <h1>{projectDisplayName(project)} · 企业梳理报告</h1>
-              <ReactMarkdown>{stripInternalRef(publishedAnalysis.content)}</ReactMarkdown>
+              <ReactMarkdown>{stripInternalRef(viewed.content)}</ReactMarkdown>
             </div>
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" size="sm" onClick={exportWord}>
@@ -1027,5 +838,189 @@ function FeedbackContentView({ submission: s }: { submission: FeedbackSubmission
         </div>
       ))}
     </div>
+  )
+}
+
+/* ---------------- 面谈音频（音频转写填表） ---------------- */
+
+const AUDIO_ACCEPT = ['mp3', 'm4a', 'wav', 'ogg', 'flac', 'aac', 'webm']
+
+function AudioCard({
+  project,
+  records,
+  username,
+  onChanged,
+}: {
+  project: Project
+  records: AudioRecord[]
+  username: string
+  onChanged: () => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [retrying, setRetrying] = useState<number | null>(null)
+  const [openTranscript, setOpenTranscript] = useState<number | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const busy = records.some((r) => r.status === 'uploaded' || r.status === 'processing')
+
+  // 有排队/整理中的记录时，每 5 秒自动刷新一次状态
+  useEffect(() => {
+    if (!busy) return
+    const t = setTimeout(onChanged, 5000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, records])
+
+  const onPick = async (file: File) => {
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+    if (!AUDIO_ACCEPT.includes(ext)) {
+      toast.error('请上传音频文件（mp3 / m4a / wav / ogg / flac / aac / webm）')
+      return
+    }
+    setUploading(true)
+    try {
+      // 1. 直传 Zion 资源存储（CDN 公开地址，供转写工作流拉取）
+      const up = await uploadFile(file)
+      // 2. 落音频记录
+      const ins = await gql<{ insert_audio_record_one: { id: number } }>(
+        `mutation($obj: audio_record_insert_input!) {
+          insert_audio_record_one(object: $obj) { id }
+        }`,
+        {
+          obj: {
+            project_id: project.id,
+            file_name: file.name,
+            audio_url: up.downloadUrl,
+            file_id: up.fileId,
+            status: 'uploaded',
+          },
+        },
+      )
+      const rid = ins.insert_audio_record_one.id
+      // 3. 触发异步「音频转写填表」流程（转写耗时较长，异步任务不受接口超时限制）
+      await createActionFlowTask(AUDIO_FILL_FLOW_ID, { 音频记录ID: rid })
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '上传面谈音频（触发整理填表）',
+        targetType: 'audio_record',
+        targetId: rid,
+        detail: { file_name: file.name },
+      })
+      toast.success('音频已上传，正在整理访谈内容，通常需要几分钟，完成后企业信息自动更新')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '上传失败，请重试')
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const retry = async (r: AudioRecord) => {
+    setRetrying(r.id)
+    try {
+      await createActionFlowTask(AUDIO_FILL_FLOW_ID, { 音频记录ID: r.id })
+      toast.success('已重新触发整理，请稍候')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '触发失败，请重试')
+    } finally {
+      setRetrying(null)
+    }
+  }
+
+  const statusColor = (st: string) =>
+    st === 'done'
+      ? 'bg-green-50 text-green-700 border-green-200'
+      : st === 'failed'
+        ? 'bg-red-50 text-red-600 border-red-200'
+        : 'bg-blue-50 text-blue-700 border-blue-200'
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Mic className="h-4 w-4" /> 面谈音频
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-slate-500">
+          与企业线下面谈时录音并上传，系统会自动整理访谈内容、填写企业信息；已交付方案的项目会基于更详细的信息重新梳理并进入审核，旧版本方案保留可回看。
+        </p>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept={AUDIO_ACCEPT.map((e) => '.' + e).join(',')}
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) onPick(f)
+          }}
+        />
+        <Button
+          className="bg-slate-900 hover:bg-slate-800"
+          disabled={uploading || busy}
+          onClick={() => fileRef.current?.click()}
+          title={busy ? '有音频正在整理中，完成后再上传' : undefined}
+        >
+          {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mic className="mr-1.5 h-4 w-4" />}
+          {uploading ? '上传中…' : '上传面谈音频'}
+        </Button>
+        {busy && (
+          <p className="flex items-center text-sm text-blue-600">
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 正在整理访谈内容，页面会自动刷新，无需等待…
+          </p>
+        )}
+
+        {records.length > 0 && (
+          <div className="space-y-2">
+            {records.map((r) => (
+              <div key={r.id} className="rounded-lg border border-slate-200 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{r.file_name ?? '音频文件'}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs ${statusColor(r.status)}`}>
+                    {AUDIO_STATUS_LABEL[r.status] ?? r.status}
+                  </span>
+                  <span className="text-xs text-slate-400">{formatTime(r.created_at)}</span>
+                </div>
+                {r.status === 'failed' && (
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <p className="flex-1 text-xs text-red-500">{r.error_message ?? '整理失败'}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      disabled={retrying === r.id}
+                      onClick={() => retry(r)}
+                    >
+                      {retrying === r.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                      重试
+                    </Button>
+                  </div>
+                )}
+                {r.status === 'done' && r.transcript && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      className="text-xs text-slate-400 underline decoration-dotted hover:text-slate-600"
+                      onClick={() => setOpenTranscript(openTranscript === r.id ? null : r.id)}
+                    >
+                      {openTranscript === r.id ? '收起访谈整理文本' : '查看访谈整理文本'}
+                    </button>
+                    {openTranscript === r.id && (
+                      <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                        {r.transcript}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

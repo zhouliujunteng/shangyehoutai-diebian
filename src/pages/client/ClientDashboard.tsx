@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { gql, logOperation } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
-import { formatTime, randomToken, plusDaysISO, CLIENT_PROJECT_STATUS_LABEL } from '@/lib/labels'
+import { formatTime, CLIENT_PROJECT_STATUS_LABEL } from '@/lib/labels'
 import { projectDisplayName } from '@/lib/types'
 import {
   clientDisplayStatus,
@@ -132,6 +132,10 @@ export default function ClientDashboard() {
 
   const onCreate = async (e: FormEvent) => {
     e.preventDefault()
+    if (quotaFull) {
+      toast.error(`项目名额已用完（${used}/${quota}），如需更多名额请联系平台管理员`)
+      return
+    }
     setCreating(true)
     try {
       const data = await gql<{ insert_project_one: { id: number } }>(
@@ -140,7 +144,7 @@ export default function ClientDashboard() {
         }`,
         {
           obj: {
-            // 项目名称留空，待填写人提交收集表后自动回填（企业名称/公司全称）
+            // 项目名称留空，面谈音频整理填表后自动回填（公司全称）
             name: '',
             remark: remark.trim() || null,
             owner_id: auth!.account.id,
@@ -150,21 +154,15 @@ export default function ClientDashboard() {
         },
       )
       const pid = data.insert_project_one.id
-      await gql(
-        `mutation($obj: collect_link_insert_input!) {
-          insert_collect_link_one(object: $obj) { id }
-        }`,
-        { obj: { project_id: pid, token: randomToken(), expires_at: plusDaysISO(3), status: 'active' } },
-      )
       await logOperation({
         projectId: pid,
         operator: auth!.account.username,
-        action: '创建项目并签发收集链接',
+        action: '创建项目',
         targetType: 'project',
         targetId: pid,
         detail: { remark: remark.trim() || null },
       })
-      toast.success('项目创建成功，收集链接已签发（3 天有效）')
+      toast.success('项目创建成功，请上传面谈音频以整理企业信息')
       setDialogOpen(false)
       setRemark('')
       navigate(`/client/project/${pid}`)
@@ -344,7 +342,7 @@ export default function ClientDashboard() {
               />
             </div>
             <p className="text-xs text-slate-400">
-              创建后将自动签发 3 天有效的收集链接，发送给企业填写人即可；项目名称将在企业填写后自动更新为企业名称。
+              创建后进入项目页上传面谈音频，系统会自动整理访谈内容并填写企业信息；项目名称将在整理完成后自动更新为企业名称。项目不过期，名额内随时可建。
             </p>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>

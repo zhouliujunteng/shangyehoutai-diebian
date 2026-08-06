@@ -150,6 +150,22 @@ export interface OperationLog {
   created_at?: string
 }
 
+/* ---------- 音频转写填表 ---------- */
+
+export type AudioRecordStatus = 'uploaded' | 'processing' | 'done' | 'failed'
+
+export interface AudioRecord {
+  id: number
+  file_name: string | null
+  audio_url: string | null
+  file_id: string | null
+  transcript: string | null
+  status: AudioRecordStatus
+  error_message: string | null
+  project_id: number
+  created_at?: string
+}
+
 /* ---------- 方案反馈（反馈链接机制，替代旧提问/回复） ---------- */
 
 /** 反馈选项 key */
