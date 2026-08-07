@@ -5,7 +5,7 @@ import { Building2, ClipboardCheck, LineChart, MonitorSmartphone, ArrowRight, Ch
 
 const PROCESS = [
   { no: '01', title: '面谈收集', desc: '顾问与企业面对面深谈，全面采集经营一线信息' },
-  { no: '02', title: '诊断梳理', desc: '智能梳理结合顾问经验，定位核心经营卡点' },
+  { no: '02', title: '诊断梳理', desc: '系统梳理结合顾问经验，定位核心经营卡点' },
   { no: '03', title: '方案交付', desc: '多级审核层层把关，出具低成本、可验证的改善方案' },
   { no: '04', title: '跟进反馈', desc: '执行问题在线反馈，咨询团队逐级回复持续陪跑' },
 ]

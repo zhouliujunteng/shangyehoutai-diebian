@@ -313,12 +313,12 @@ export default function ReviewDetail() {
       await logOperation({
         projectId: analysis.project_id,
         operator: auth!.account.username,
-        action: `触发 AI 重新梳理（v${analysis.version} 已留痕）`,
+        action: `触发重新梳理（v${analysis.version} 已留痕）`,
         targetType: 'analysis',
         targetId: analysis.id,
         detail: { comment: comment.trim() },
       })
-      toast.success('已触发 AI 重新梳理，新版本生成后将重新进入审核流程')
+      toast.success('已触发重新梳理，新版本生成后将重新进入审核流程')
       navigate('/server/review')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '操作失败')
@@ -611,7 +611,7 @@ export default function ReviewDetail() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Wand2 className="h-4 w-4" /> 局部修改（智能体只改写指定片段，其余内容不动）
+              <Wand2 className="h-4 w-4" /> 局部修改（只改写指定片段，其余内容不动）
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -635,7 +635,7 @@ export default function ReviewDetail() {
                     disabled={acting !== null}
                     onClick={partialEdit}
                   >
-                    <Wand2 className="mr-1.5 h-4 w-4" /> 智能体局部修改
+                    <Wand2 className="mr-1.5 h-4 w-4" /> 局部修改
                   </Button>
                   <Button
                     variant="outline"
@@ -744,7 +744,7 @@ function PartialEditPanel() {
             />
           ))}
         </div>
-        <p className="text-sm font-medium text-violet-700">智能体正在改写指定片段…</p>
+        <p className="text-sm font-medium text-violet-700">正在改写指定片段…</p>
         <p className="max-w-sm text-center text-xs leading-5 text-slate-400">
           仅改写你指定的片段，其余内容保持不变，完成后自动生成新版本
         </p>

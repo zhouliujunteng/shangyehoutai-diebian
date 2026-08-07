@@ -409,7 +409,7 @@ function ActionsCard({
       await logOperation({
         projectId: project.id,
         operator: auth!.account.username,
-        action: '提交梳理（触发 AI 梳理）',
+        action: '提交梳理',
         targetType: 'project',
         targetId: project.id,
       })
