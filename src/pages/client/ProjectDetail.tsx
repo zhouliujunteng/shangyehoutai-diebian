@@ -24,7 +24,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { DETAILED_SECTIONS } from '@/lib/forms'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
@@ -144,7 +146,12 @@ export default function ProjectDetail() {
       </div>
 
       <div className="no-print">
-        <SubmissionsCard submissions={project.submissions} />
+        <SubmissionsCard
+          submissions={project.submissions}
+          project={project}
+          username={auth!.account.username}
+          onChanged={refresh}
+        />
       </div>
 
       <div className="no-print">
@@ -234,21 +241,124 @@ function RemarkEditor({ project, onChanged }: { project: Project; onChanged: () 
   )
 }
 
-/* ---------------- 提交信息 ---------------- */
+/* ---------------- 提交信息（含客户修改） ---------------- */
 
-function SubmissionsCard({ submissions }: { submissions: Submission[] }) {
+function SubmissionsCard({
+  submissions,
+  project,
+  username,
+  onChanged,
+}: {
+  submissions: Submission[]
+  project: Project
+  username: string
+  onChanged: () => void
+}) {
   const basics = submissions.filter((s) => s.form_type === 'basic')
   const detailed = submissions.filter((s) => s.form_type === 'detailed')
+  const latestDetailed = detailed[0] ?? null
+  // 提交梳理前（信息整理阶段）客户可修改最新详细版答案
+  const canEdit = ['created', 'collecting', 'pending_confirm', 'supplementing'].includes(project.status)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+
+  const startEdit = () => {
+    if (!latestDetailed) return
+    const d: Record<string, string> = {}
+    for (const sec of DETAILED_SECTIONS) {
+      for (const q of sec.questions) d[q] = latestDetailed.answers?.[q] ?? ''
+    }
+    setDraft(d)
+    setEditing(true)
+  }
+
+  const save = async () => {
+    if (!latestDetailed) return
+    setSaving(true)
+    try {
+      // 只保留非空答案 + 原有非题目键（兼容历史键名）
+      const cleaned: Record<string, string> = { ...(latestDetailed.answers ?? {}) }
+      for (const sec of DETAILED_SECTIONS) {
+        for (const q of sec.questions) {
+          const v = (draft[q] ?? '').trim()
+          if (v) cleaned[q] = v
+          else delete cleaned[q]
+        }
+      }
+      await gql(
+        `mutation($id: bigint!, $a: jsonb) {
+          update_submission_by_pk(pk_columns: { id: $id }, _set: { answers: $a }) { id }
+        }`,
+        { id: latestDetailed.id, a: cleaned },
+      )
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '修改企业信息（详细版）',
+        targetType: 'submission',
+        targetId: latestDetailed.id,
+      })
+      toast.success('修改已保存')
+      setEditing(false)
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">提交信息（{submissions.length}）</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base">
+          提交信息（{submissions.length}）
+          {canEdit && latestDetailed && !editing && (
+            <Button variant="outline" size="sm" className="ml-auto h-8" onClick={startEdit}>
+              <Pencil className="mr-1 h-3.5 w-3.5" /> 修改企业信息
+            </Button>
+          )}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {submissions.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-400">尚未整理企业信息，请先上传面谈音频</p>
+        ) : editing ? (
+          <div className="space-y-5">
+            <p className="rounded-lg bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+              请核对系统整理的企业信息，不准确的地方直接修改，全部确认后保存；提交梳理前都可以再次修改。
+            </p>
+            {DETAILED_SECTIONS.map((sec) => (
+              <section key={sec.title} className="rounded-xl border border-slate-200 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">{sec.title}</h3>
+                <div className="space-y-3">
+                  {sec.questions.map((q) => (
+                    <div key={q} className="space-y-1">
+                      <label className="text-xs font-medium text-slate-500">{q}</label>
+                      <Textarea
+                        rows={2}
+                        value={draft[q] ?? ''}
+                        onChange={(e) => setDraft((p) => ({ ...p, [q]: e.target.value }))}
+                        placeholder="未涉及"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+            <div className="flex gap-3">
+              <Button className="bg-slate-900 hover:bg-slate-800" disabled={saving} onClick={save}>
+                {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                保存修改
+              </Button>
+              <Button variant="ghost" disabled={saving} onClick={() => setEditing(false)}>
+                取消
+              </Button>
+            </div>
+          </div>
         ) : (
-          <Tabs defaultValue={basics.length > 0 ? 'basic' : 'detailed'}>
+          <Tabs defaultValue={detailed.length > 0 ? 'detailed' : 'basic'}>
             <TabsList>
               <TabsTrigger value="basic">基础版（{basics.length}）</TabsTrigger>
               <TabsTrigger value="detailed">详细版（{detailed.length}）</TabsTrigger>
@@ -845,6 +955,49 @@ function FeedbackContentView({ submission: s }: { submission: FeedbackSubmission
 
 const AUDIO_ACCEPT = ['mp3', 'm4a', 'wav', 'ogg', 'flac', 'aac', 'webm']
 
+/** 读取音频时长（秒），失败返回 0 */
+function readAudioDuration(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const a = new Audio()
+    a.preload = 'metadata'
+    a.onloadedmetadata = () => {
+      const d = a.duration
+      URL.revokeObjectURL(url)
+      resolve(Number.isFinite(d) ? d : 0)
+    }
+    a.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(0)
+    }
+    a.src = url
+  })
+}
+
+/** 预计整理时长（分钟）：转写约按时长的 0.3 倍，加 AI 填表约 2 分钟，保底 3 分钟 */
+export function estimateMinutes(durationSec: number): number {
+  if (!durationSec) return 5
+  return Math.max(3, Math.round(durationSec / 60) * 0.3 + 2)
+}
+
+/** 预计时长提示的本地存取（按音频记录 id，刷新页面后仍可见） */
+const estKey = (rid: number) => `xa_audio_est_${rid}`
+function saveEstimate(rid: number, minutes: number) {
+  try {
+    localStorage.setItem(estKey(rid), String(minutes))
+  } catch {
+    /* ignore */
+  }
+}
+function loadEstimate(rid: number): number | null {
+  try {
+    const v = Number(localStorage.getItem(estKey(rid)))
+    return v > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
 function AudioCard({
   project,
   records,
@@ -879,6 +1032,13 @@ function AudioCard({
     }
     setUploading(true)
     try {
+      // 0. 读取音频时长，给出预计处理时间
+      const durationSec = await readAudioDuration(file)
+      const durationMin = durationSec ? Math.round(durationSec / 60) : 0
+      const estMin = estimateMinutes(durationSec)
+      if (durationMin > 60) {
+        toast.warning(`音频时长约 ${durationMin} 分钟，较长可能转写超时，建议分段上传；仍将继续尝试`, { duration: 8000 })
+      }
       // 1. 直传 Zion 资源存储（CDN 公开地址，供转写工作流拉取）
       const up = await uploadFile(file)
       // 2. 落音频记录
@@ -897,6 +1057,7 @@ function AudioCard({
         },
       )
       const rid = ins.insert_audio_record_one.id
+      saveEstimate(rid, estMin)
       // 3. 触发异步「音频转写填表」流程（转写耗时较长，异步任务不受接口超时限制）
       await createActionFlowTask(AUDIO_FILL_FLOW_ID, { 音频记录ID: rid })
       await logOperation({
@@ -905,9 +1066,14 @@ function AudioCard({
         action: '上传面谈音频（触发整理填表）',
         targetType: 'audio_record',
         targetId: rid,
-        detail: { file_name: file.name },
+        detail: { file_name: file.name, 时长秒: Math.round(durationSec), 预计分钟: estMin },
       })
-      toast.success('音频已上传，正在整理访谈内容，通常需要几分钟，完成后企业信息自动更新')
+      toast.success(
+        durationMin > 0
+          ? `音频已上传（时长约 ${durationMin} 分钟），预计整理约 ${estMin} 分钟完成，企业信息将自动更新`
+          : `音频已上传，预计整理约 ${estMin} 分钟完成，企业信息将自动更新`,
+        { duration: 8000 },
+      )
       onChanged()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '上传失败，请重试')
@@ -968,11 +1134,16 @@ function AudioCard({
           {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mic className="mr-1.5 h-4 w-4" />}
           {uploading ? '上传中…' : '上传面谈音频'}
         </Button>
-        {busy && (
-          <p className="flex items-center text-sm text-blue-600">
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 正在整理访谈内容，页面会自动刷新，无需等待…
-          </p>
-        )}
+        {busy && (() => {
+          const cur = records.find((r) => r.status === 'uploaded' || r.status === 'processing')
+          const est = cur ? loadEstimate(cur.id) : null
+          return (
+            <p className="flex items-center text-sm text-blue-600">
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              正在整理访谈内容{est ? `，预计约 ${est} 分钟完成` : ''}，页面会自动刷新，无需等待…
+            </p>
+          )
+        })()}
 
         {records.length > 0 && (
           <div className="space-y-2">
@@ -980,6 +1151,9 @@ function AudioCard({
               <div key={r.id} className="rounded-lg border border-slate-200 px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{r.file_name ?? '音频文件'}</span>
+                  {(r.status === 'uploaded' || r.status === 'processing') && loadEstimate(r.id) && (
+                    <span className="text-xs text-blue-500">预计约 {loadEstimate(r.id)} 分钟</span>
+                  )}
                   <span className={`rounded-full border px-2 py-0.5 text-xs ${statusColor(r.status)}`}>
                     {AUDIO_STATUS_LABEL[r.status] ?? r.status}
                   </span>
