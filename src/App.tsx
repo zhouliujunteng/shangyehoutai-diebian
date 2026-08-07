@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router'
 import { Toaster } from '@/components/ui/sonner'
 import { AuthProvider, RequireAuth } from '@/lib/auth'
+import Landing from '@/pages/Landing'
 import Login from '@/pages/Login'
 import FillPage from '@/pages/fill/FillPage'
 import ClientLayout from '@/pages/client/ClientLayout'
@@ -19,7 +20,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/f/:token" element={<FillPage />} />
         <Route
