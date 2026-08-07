@@ -181,16 +181,16 @@ export default function ReviewWorkbench() {
         <TableHeader>
           <TableRow>
             <TableHead>项目</TableHead>
-            <TableHead>版本</TableHead>
-            <TableHead>当前状态</TableHead>
-            <TableHead>提交时间</TableHead>
-            <TableHead className="text-right">操作</TableHead>
+            <TableHead className="whitespace-nowrap">版本</TableHead>
+            <TableHead className="whitespace-nowrap">当前状态</TableHead>
+            <TableHead className="whitespace-nowrap">提交时间</TableHead>
+            <TableHead className="whitespace-nowrap text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((a) => (
             <TableRow key={a.id} className="relative">
-              <TableCell className="font-medium">
+              <TableCell className="max-w-[320px] truncate font-medium">
                 {a.project?.name ?? `#${a.project_id}`}
                 {isUnseen(a.created_at, a.project_id, viewedScope) && <UpdateDot />}
                 {suffix?.(a)}
@@ -199,8 +199,8 @@ export default function ReviewWorkbench() {
               <TableCell>
                 <ReviewStatusBadge status={a.status} />
               </TableCell>
-              <TableCell className="text-slate-500">{formatTime(a.created_at)}</TableCell>
-              <TableCell className="text-right">
+              <TableCell className="whitespace-nowrap text-slate-500">{formatTime(a.created_at)}</TableCell>
+              <TableCell className="whitespace-nowrap text-right">
                 <Button size="sm" variant="outline" onClick={() => navigate(linkTo(a))}>
                   查看 <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
