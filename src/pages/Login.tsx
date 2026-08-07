@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import Beian from '@/components/Beian'
 import { toast } from 'sonner'
-import { Building2, Loader2 } from 'lucide-react'
+import { Building2, Loader2, ArrowLeft } from 'lucide-react'
 
 export default function Login() {
   const { login, auth } = useAuth()
@@ -44,7 +44,14 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+    <div className="relative flex min-h-screen items-center justify-center bg-slate-100 px-4">
+      <button
+        type="button"
+        className="absolute left-4 top-4 flex items-center gap-1 text-sm text-slate-400 transition-colors hover:text-slate-600"
+        onClick={() => navigate('/')}
+      >
+        <ArrowLeft className="h-4 w-4" /> 返回首页
+      </button>
       <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="space-y-3 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white">
