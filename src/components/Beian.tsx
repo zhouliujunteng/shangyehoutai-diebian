@@ -4,18 +4,17 @@
  */
 export default function Beian() {
   return (
-    <div className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-20 space-y-1 py-3 text-center text-xs text-slate-400">
-      <div>深圳市原点秩序科技有限公司版权所有</div>
-      <div>
-        <a
-          href="https://beian.miit.gov.cn/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="pointer-events-auto transition-colors hover:text-slate-600"
-        >
-          粤ICP备2026107077号-1
-        </a>
-      </div>
+    <div className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-20 py-3 text-center text-xs text-slate-400">
+      <span>深圳市原点秩序科技有限公司版权所有</span>
+      <span className="mx-2 text-slate-300">|</span>
+      <a
+        href="https://beian.miit.gov.cn/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="pointer-events-auto transition-colors hover:text-slate-600"
+      >
+        粤ICP备2026107077号-1
+      </a>
     </div>
   )
 }

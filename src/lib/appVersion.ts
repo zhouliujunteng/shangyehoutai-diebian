@@ -2,4 +2,4 @@
  * 应用版本号（每次发布递增，打包时更新）。
  * v{提交序号} · {git 短哈希}，直观反映当前是第几个发布版本。
  */
-export const APP_VERSION = 'v41'
+export const APP_VERSION = 'v42'

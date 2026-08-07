@@ -22,7 +22,6 @@ export default function Landing() {
             <Building2 className="h-4 w-4" />
           </div>
           <span className="font-semibold tracking-wide">项目后台</span>
-          <span className="hidden text-xs text-slate-500 sm:inline">深圳市原点秩序科技有限公司</span>
           <Button
             size="sm"
             variant="outline"
@@ -55,7 +54,7 @@ export default function Landing() {
 
         <div className="relative mx-auto max-w-4xl px-5 pt-36 pb-20 text-center sm:pt-44">
           <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 text-xs tracking-widest text-slate-300 backdrop-blur">
-            深圳市原点秩序科技有限公司 · 出品
+            经营诊断 · 方案落地 · 持续陪跑
           </div>
           <h1 className="mt-8 text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
             项目后台
