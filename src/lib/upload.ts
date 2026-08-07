@@ -7,7 +7,10 @@ import { gql } from '@/lib/graphql'
 
 export interface UploadedFile {
   downloadUrl: string
+  /** 文件外部 ID（exId） */
   fileId: string
+  /** 文件内部数值 ID（写 FILE 列时用，audio_file_id 只收 Long） */
+  fileDbId: number
 }
 
 /** 计算文件内容的 MD5 并转为 Base64（Zion 预签名接口要求） */
@@ -28,8 +31,8 @@ interface PresignedResult {
   contentType: string
 }
 
-/** 上传文件到 Zion 资源存储（CDN 公开可读），返回可外部访问的下载地址 */
-export async function uploadFile(file: File): Promise<UploadedFile> {
+/** 上传文件到 Zion 资源存储（CDN 公开可读），onProgress 回调 0-100 的百分比 */
+export async function uploadFile(file: File, onProgress?: (pct: number) => void): Promise<UploadedFile> {
   const ext = (file.name.split('.').pop() ?? '').toLowerCase()
   const format = ext.toUpperCase()
   const md5 = await md5Base64(file)
@@ -47,7 +50,30 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
     typeof p.uploadHeaders === 'string'
       ? JSON.parse(p.uploadHeaders)
       : ((p.uploadHeaders ?? {}) as Record<string, string>)
-  const res = await fetch(p.uploadUrl, { method: 'PUT', headers, body: file })
-  if (!res.ok) throw new Error(`文件上传失败（HTTP ${res.status}），请重试`)
-  return { downloadUrl: p.downloadUrl, fileId: p.exId }
+  // 用 XHR 以获取真实上传进度（fetch 不支持 upload progress）
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', p.uploadUrl)
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)))
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100)
+        resolve()
+      } else {
+        reject(new Error(`文件上传失败（HTTP ${xhr.status}），请重试`))
+      }
+    }
+    xhr.onerror = () => reject(new Error('网络连接失败，文件上传中断，请重试'))
+    xhr.send(file)
+  })
+  // FILE 列写入需要内部数值 id：用 exId 兑换（getFileByExId）
+  const fd = await gql<{ getFileByExId: { id: number } | null }>(
+    `query($e: String!) { getFileByExId(fileExId: $e) { id } }`,
+    { e: p.exId },
+  )
+  if (!fd.getFileByExId) throw new Error('文件登记失败，请重试')
+  return { downloadUrl: p.downloadUrl, fileId: p.exId, fileDbId: fd.getFileByExId.id }
 }

@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Progress } from '@/components/ui/progress'
 import { DETAILED_SECTIONS } from '@/lib/forms'
 import { toast } from 'sonner'
 import {
@@ -68,7 +69,7 @@ export default function ProjectDetail() {
             id name remark status review_level current_analysis_id created_at
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
-            audio_records(order_by: { id: desc }) { id file_name audio_url file_id transcript status error_message processing_seconds finished_at project_id created_at }
+            audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } file_id transcript status error_message processing_seconds finished_at project_id created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -974,10 +975,10 @@ function readAudioDuration(file: File): Promise<number> {
   })
 }
 
-/** 预计整理时长（分钟）：转写约按时长的 0.3 倍，加 AI 填表约 2 分钟，保底 3 分钟 */
+/** 预计整理时长（分钟）：转写约按时长的 0.3 倍，加 AI 填表约 2 分钟，取整分钟、保底 3 分钟 */
 export function estimateMinutes(durationSec: number): number {
   if (!durationSec) return 5
-  return Math.max(3, Math.round(durationSec / 60) * 0.3 + 2)
+  return Math.max(3, Math.ceil((durationSec / 60) * 0.3 + 2))
 }
 
 /** 预计时长提示的本地存取（按音频记录 id，刷新页面后仍可见） */
@@ -1017,6 +1018,7 @@ function AudioCard({
   onChanged: () => void
 }) {
   const [uploading, setUploading] = useState(false)
+  const [uploadPct, setUploadPct] = useState<number | null>(null)
   const [retrying, setRetrying] = useState<number | null>(null)
   const [openTranscript, setOpenTranscript] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -1046,9 +1048,10 @@ function AudioCard({
       if (durationMin > 60) {
         toast.warning(`音频时长约 ${durationMin} 分钟，较长可能转写超时，建议分段上传；仍将继续尝试`, { duration: 8000 })
       }
-      // 1. 直传 Zion 资源存储（CDN 公开地址，供转写工作流拉取）
-      const up = await uploadFile(file)
-      // 2. 落音频记录
+      // 1. 直传 Zion 资源存储（CDN 公开地址，供转写工作流拉取；带真实进度条）
+      setUploadPct(0)
+      const up = await uploadFile(file, setUploadPct)
+      // 2. 落音频记录（音频文件实体存 FILE 列，与项目绑定，两端可在线播放）
       const ins = await gql<{ insert_audio_record_one: { id: number } }>(
         `mutation($obj: audio_record_insert_input!) {
           insert_audio_record_one(object: $obj) { id }
@@ -1058,6 +1061,7 @@ function AudioCard({
             project_id: project.id,
             file_name: file.name,
             audio_url: up.downloadUrl,
+            audio_file_id: up.fileDbId,
             file_id: up.fileId,
             status: 'uploaded',
           },
@@ -1086,6 +1090,7 @@ function AudioCard({
       toast.error(e instanceof Error ? e.message : '上传失败，请重试')
     } finally {
       setUploading(false)
+      setUploadPct(null)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
@@ -1141,6 +1146,12 @@ function AudioCard({
           {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mic className="mr-1.5 h-4 w-4" />}
           {uploading ? '上传中…' : '上传面谈音频'}
         </Button>
+        {uploading && uploadPct !== null && (
+          <div className="flex items-center gap-3">
+            <Progress value={uploadPct} className="h-2 flex-1" />
+            <span className="w-10 text-right text-xs text-slate-500">{uploadPct}%</span>
+          </div>
+        )}
         {busy && (() => {
           const cur = records.find((r) => r.status === 'uploaded' || r.status === 'processing')
           const est = cur ? loadEstimate(cur.id) : null
@@ -1183,6 +1194,9 @@ function AudioCard({
                       重试
                     </Button>
                   </div>
+                )}
+                {(r.audio_file?.url || r.audio_url) && (
+                  <audio controls preload="none" src={r.audio_file?.url ?? r.audio_url ?? ''} className="mt-2 h-9 w-full" />
                 )}
                 {r.status === 'done' && r.transcript && (
                   <div className="mt-2">

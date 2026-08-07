@@ -158,6 +158,8 @@ export interface AudioRecord {
   id: number
   file_name: string | null
   audio_url: string | null
+  /** 音频文件实体（Zion FILE 列，含可直接播放的 url） */
+  audio_file?: { url: string; name?: string | null; sizeBytes?: number } | null
   file_id: string | null
   transcript: string | null
   status: AudioRecordStatus

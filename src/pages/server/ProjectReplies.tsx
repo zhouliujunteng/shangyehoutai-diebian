@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
 import { gql, logOperation, createActionFlowTask, waitActionFlowResult, FEEDBACK_REPLY_FLOW_ID } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
-import { nextReviewStage, initialReviewStage, formatTime, FEEDBACK_OPTION_LABEL } from '@/lib/labels'
+import { nextReviewStage, initialReviewStage, formatTime, FEEDBACK_OPTION_LABEL, AUDIO_STATUS_LABEL } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
-import { projectDisplayName, type Analysis, type FeedbackLink, type FeedbackOption, type FeedbackReply, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
+import { projectDisplayName, type Analysis, type AudioRecord, type FeedbackLink, type FeedbackOption, type FeedbackReply, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
 import { ReviewStatusBadge, ProjectStatusBadge, FeedbackSubmissionStatusBadge, FeedbackLinkStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
@@ -15,13 +15,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { toast } from 'sonner'
-import { ArrowLeft, Check, Loader2, Save, Send, Sparkles, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Check, Loader2, Save, Send, Sparkles, RefreshCw, Mic } from 'lucide-react'
 
 interface ProjectFull extends Project {
   owner?: { username: string } | null
   submissions: Submission[]
   analyses: Analysis[]
   feedback_links: (FeedbackLink & { feedback_submissions: FeedbackSubmission[] })[]
+  audio_records: AudioRecord[]
 }
 
 export default function ProjectReplies() {
@@ -51,6 +52,7 @@ export default function ProjectReplies() {
             owner { username }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content internal_ref status current_stage project_id created_at }
+            audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } transcript status error_message processing_seconds created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -318,6 +320,51 @@ export default function ProjectReplies() {
           )}
         </CardContent>
       </Card>
+
+      {/* 音频记录（面谈音频 + 转写文本 + 处理结果，可在线播放） */}
+      {project.audio_records.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Mic className="h-4 w-4" /> 音频记录（{project.audio_records.length}）
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {project.audio_records.map((r) => (
+              <div key={r.id} className="rounded-lg border border-slate-200 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{r.file_name ?? '音频文件'}</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+                    {AUDIO_STATUS_LABEL[r.status] ?? r.status}
+                  </span>
+                  {r.processing_seconds != null && (
+                    <span className="text-xs text-slate-400">
+                      耗时 {r.processing_seconds < 90 ? `${r.processing_seconds} 秒` : `${Math.floor(r.processing_seconds / 60)} 分 ${r.processing_seconds % 60} 秒`}
+                    </span>
+                  )}
+                  <span className="text-xs text-slate-400">{formatTime(r.created_at)}</span>
+                </div>
+                {r.status === 'failed' && r.error_message && (
+                  <p className="mt-1.5 text-xs text-red-500">{r.error_message}</p>
+                )}
+                {(r.audio_file?.url || r.audio_url) && (
+                  <audio controls preload="none" src={r.audio_file?.url ?? r.audio_url ?? ''} className="mt-2 h-9 w-full" />
+                )}
+                {r.transcript && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-slate-400 underline decoration-dotted hover:text-slate-600">
+                      查看访谈整理文本
+                    </summary>
+                    <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                      {r.transcript}
+                    </p>
+                  </details>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 方案反馈 */}
       <div className="space-y-4">
