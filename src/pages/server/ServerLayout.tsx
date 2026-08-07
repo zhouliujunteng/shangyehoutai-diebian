@@ -3,6 +3,7 @@ import { useAuth } from '@/lib/auth'
 import { ACCOUNT_TYPE_LABEL } from '@/lib/labels'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import Beian from '@/components/Beian'
 import { Building2, LogOut, LayoutDashboard, ClipboardCheck, MessageSquareReply, Users, Settings } from 'lucide-react'
 import { accountDisplayName } from '@/lib/types'
 import { APP_VERSION } from '@/lib/appVersion'
@@ -90,6 +91,7 @@ export default function ServerLayout() {
       <main className="mx-auto max-w-7xl px-4 py-6">
         <Outlet />
       </main>
+      <Beian />
     </div>
   )
 }

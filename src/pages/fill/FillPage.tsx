@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+import Beian from '@/components/Beian'
 import { Building2, CheckCircle2, Loader2, XCircle, Clock, FileCheck } from 'lucide-react'
 import FeedbackFillPage from './FeedbackFillPage'
 
@@ -233,6 +234,7 @@ export default function FillPage() {
           />
         )}
       </main>
+      <Beian />
     </div>
   )
 }

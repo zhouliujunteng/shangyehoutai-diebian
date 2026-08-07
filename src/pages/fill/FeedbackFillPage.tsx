@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import Beian from '@/components/Beian'
 import { MessageSquarePlus, CheckCircle2, Loader2, XCircle, Clock, FileCheck, Ban } from 'lucide-react'
 
 type PageState =
@@ -298,6 +299,7 @@ export default function FeedbackFillPage({ token }: { token: string }) {
           </div>
         )}
       </main>
+      <Beian />
     </div>
   )
 }

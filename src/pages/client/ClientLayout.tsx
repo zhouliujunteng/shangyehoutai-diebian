@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from 'react-router'
 import { useAuth } from '@/lib/auth'
 import { accountDisplayName } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import Beian from '@/components/Beian'
 import { Building2, LogOut, Settings } from 'lucide-react'
 import { APP_VERSION } from '@/lib/appVersion'
 
@@ -52,6 +53,7 @@ export default function ClientLayout() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />
       </main>
+      <Beian />
     </div>
   )
 }

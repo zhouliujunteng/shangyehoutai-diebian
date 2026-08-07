@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import Beian from '@/components/Beian'
 import { toast } from 'sonner'
 import { Building2, Loader2 } from 'lucide-react'
 
@@ -91,6 +92,7 @@ export default function Login() {
           </form>
         </CardContent>
       </Card>
+      <Beian />
     </div>
   )
 }
