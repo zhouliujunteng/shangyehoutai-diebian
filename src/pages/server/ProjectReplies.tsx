@@ -134,7 +134,7 @@ export default function ProjectReplies() {
     }
   }
 
-  /** 手工起草反馈回复并进入审核链（系统草稿不存在时的兜底）；反馈提交状态置为「回复中」 */
+  /** 手工起草反馈回复并进入审核链（专家草稿不存在时的兜底）；反馈提交状态置为「回复中」 */
   const createFbReply = async (sub: FeedbackSubmission) => {
     const content = (fbContents[sub.id] ?? '').trim()
     if (!content) {
@@ -474,7 +474,7 @@ export default function ProjectReplies() {
                         disabled={acting !== null || !!fbDrafting[sub.id]}
                         onClick={() => generateFbDraft(sub)}
                       >
-                        <Sparkles className="mr-1 h-3.5 w-3.5" /> 系统起草
+                        <Sparkles className="mr-1 h-3.5 w-3.5" /> 专家起草
                       </Button>
                     </div>
                     {fbDrafting[sub.id] ? (
@@ -515,7 +515,7 @@ export default function ProjectReplies() {
                           onClick={() => generateFbDraft(sub)}
                           title="用系统重新起草，当前草稿将作废留痕"
                         >
-                          <Sparkles className="mr-1 h-3.5 w-3.5" /> 系统重写
+                          <Sparkles className="mr-1 h-3.5 w-3.5" /> 专家重写
                         </Button>
                       )}
                     </div>
@@ -601,7 +601,7 @@ function AiDraftingPanel() {
         </div>
         <p className="text-sm font-medium text-violet-700">{AI_PHASES[phase]}</p>
         <p className="max-w-sm text-center text-xs leading-5 text-slate-400">
-          系统正在综合「企业收集表信息 + 梳理方案 + 反馈内容」起草回复，通常需要 20-60 秒，请勿关闭页面
+          专家正在综合「企业收集表信息 + 梳理方案 + 反馈内容」起草回复，通常需要 20-60 秒，请勿关闭页面
         </p>
       </div>
     </div>
