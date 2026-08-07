@@ -192,7 +192,7 @@ export default function ReviewWorkbench() {
             <TableRow key={a.id} className="relative">
               <TableCell className="max-w-[320px] truncate font-medium">
                 {a.project?.name ?? `#${a.project_id}`}
-                {isUnseen(a.created_at, a.project_id, viewedScope) && <UpdateDot />}
+                {isUnseen(a.created_at, a.project_id, viewedScope) && <UpdateDot inline />}
                 {suffix?.(a)}
               </TableCell>
               <TableCell>v{a.version}</TableCell>

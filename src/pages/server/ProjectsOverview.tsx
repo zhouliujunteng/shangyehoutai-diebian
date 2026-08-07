@@ -269,7 +269,7 @@ export default function ProjectsOverview() {
                         <TableRow key={p.id} className="relative">
                           <TableCell className="font-medium">
                             {p.name || '未命名项目'}
-                            {hasUnseenServerActivity(p, viewedScope) && <UpdateDot />}
+                            {hasUnseenServerActivity(p, viewedScope) && <UpdateDot inline />}
                           </TableCell>
                           <TableCell>{displayOf(p.owner?.username)}</TableCell>
                           <TableCell>

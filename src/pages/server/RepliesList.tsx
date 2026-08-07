@@ -195,7 +195,7 @@ export default function RepliesList() {
                     <TableRow key={g.project_id} className="relative">
                       <TableCell className="font-medium">
                         {g.name}
-                        {isUnseen(g.latestTime, g.project_id, viewedScope) && <UpdateDot />}
+                        {isUnseen(g.latestTime, g.project_id, viewedScope) && <UpdateDot inline />}
                       </TableCell>
                       <TableCell>{g.feedbackCount}</TableCell>
                       <TableCell>
