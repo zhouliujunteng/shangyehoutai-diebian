@@ -11,7 +11,7 @@ export default function ClientLayout() {
   const navigate = useNavigate()
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900 text-white">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Building2 className="h-5 w-5" />
@@ -50,7 +50,7 @@ export default function ClientLayout() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <Outlet />
       </main>
       <Beian />

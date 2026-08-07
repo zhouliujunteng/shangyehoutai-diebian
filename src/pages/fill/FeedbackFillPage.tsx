@@ -199,14 +199,14 @@ export default function FeedbackFillPage({ token }: { token: string }) {
   const detailedFieldOrder = DETAILED_SECTIONS.flatMap((s) => s.questions)
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       <header className="bg-slate-900 px-4 py-4 text-white">
         <div className="mx-auto flex max-w-2xl items-center gap-2">
           <MessageSquarePlus className="h-5 w-5" />
           <span className="font-semibold">方案反馈</span>
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-4 py-6">
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6">
         {state.kind === 'loading' && (
           <div className="flex items-center justify-center py-24 text-slate-400">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…
