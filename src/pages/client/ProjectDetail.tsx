@@ -68,7 +68,7 @@ export default function ProjectDetail() {
             id name remark status review_level current_analysis_id created_at
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
-            audio_records(order_by: { id: desc }) { id file_name audio_url file_id transcript status error_message project_id created_at }
+            audio_records(order_by: { id: desc }) { id file_name audio_url file_id transcript status error_message processing_seconds finished_at project_id created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -998,6 +998,13 @@ function loadEstimate(rid: number): number | null {
   }
 }
 
+/** 处理耗时展示：90 秒内显示秒，否则 X 分 Y 秒 */
+function formatDuration(sec?: number | null): string {
+  if (sec == null || sec <= 0) return ''
+  if (sec < 90) return `${sec} 秒`
+  return `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`
+}
+
 function AudioCard({
   project,
   records,
@@ -1153,6 +1160,9 @@ function AudioCard({
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{r.file_name ?? '音频文件'}</span>
                   {(r.status === 'uploaded' || r.status === 'processing') && loadEstimate(r.id) && (
                     <span className="text-xs text-blue-500">预计约 {loadEstimate(r.id)} 分钟</span>
+                  )}
+                  {(r.status === 'done' || r.status === 'failed') && r.processing_seconds != null && (
+                    <span className="text-xs text-slate-400">耗时 {formatDuration(r.processing_seconds)}</span>
                   )}
                   <span className={`rounded-full border px-2 py-0.5 text-xs ${statusColor(r.status)}`}>
                     {AUDIO_STATUS_LABEL[r.status] ?? r.status}

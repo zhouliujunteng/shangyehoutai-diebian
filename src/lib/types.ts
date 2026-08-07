@@ -162,6 +162,10 @@ export interface AudioRecord {
   transcript: string | null
   status: AudioRecordStatus
   error_message: string | null
+  /** 处理耗时（秒，完成或失败后落库，供前端展示与后期统计） */
+  processing_seconds?: number | null
+  /** 处理完成/失败时间 */
+  finished_at?: string | null
   project_id: number
   created_at?: string
 }
