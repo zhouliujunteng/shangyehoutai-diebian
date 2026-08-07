@@ -14,7 +14,7 @@ const PROCESS = [
 export default function Landing() {
   const navigate = useNavigate()
   return (
-    <div className="min-h-screen bg-slate-950 pb-20 text-white">
+    <div className="min-h-screen bg-slate-950 text-white">
       {/* 顶部导航 */}
       <header className="absolute inset-x-0 top-0 z-10">
         <div className="mx-auto flex max-w-6xl items-center gap-2.5 px-5 py-5">

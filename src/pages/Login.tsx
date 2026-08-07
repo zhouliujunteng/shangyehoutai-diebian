@@ -44,15 +44,16 @@ export default function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-slate-100 px-4">
+    <div className="relative flex min-h-screen flex-col bg-slate-100 px-4">
       <button
         type="button"
-        className="absolute left-4 top-4 flex items-center gap-1 text-sm text-slate-400 transition-colors hover:text-slate-600"
+        className="absolute left-4 top-4 z-10 flex items-center gap-1 text-sm text-slate-400 transition-colors hover:text-slate-600"
         onClick={() => navigate('/')}
       >
         <ArrowLeft className="h-4 w-4" /> 返回首页
       </button>
-      <Card className="w-full max-w-sm shadow-lg">
+      <div className="flex flex-1 items-center justify-center">
+        <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="space-y-3 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white">
             <Building2 className="h-6 w-6" />
@@ -98,7 +99,8 @@ export default function Login() {
             </div>
           </form>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
       <Beian />
     </div>
   )
