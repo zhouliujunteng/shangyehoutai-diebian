@@ -9,6 +9,7 @@ import { projectDisplayName, type Analysis, type AudioRecord, type FeedbackLink,
 import { ReviewStatusBadge, ProjectStatusBadge, FeedbackSubmissionStatusBadge, FeedbackLinkStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
+import TranscriptView from '@/components/TranscriptView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -52,7 +53,7 @@ export default function ProjectReplies() {
             owner { username }
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content internal_ref status current_stage project_id created_at }
-            audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } transcript status error_message processing_seconds created_at }
+            audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } transcript recognized_text raw_response status error_message processing_seconds created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -351,13 +352,29 @@ export default function ProjectReplies() {
                   <audio controls preload="none" src={r.audio_file?.url ?? r.audio_url ?? ''} className="mt-2 h-9 w-full" />
                 )}
                 {r.transcript && (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-[11px] font-medium text-slate-400">对话内容（按说话人区分）</p>
+                    <TranscriptView transcript={r.transcript} className="max-h-96" />
+                  </div>
+                )}
+                {r.recognized_text && (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-slate-400 underline decoration-dotted hover:text-slate-600">
-                      查看访谈整理文本
+                    <summary className="cursor-pointer text-[11px] text-slate-400 underline decoration-dotted hover:text-slate-600">
+                      语音识别原文（未分角色）
                     </summary>
-                    <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-                      {r.transcript}
+                    <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                      {r.recognized_text}
                     </p>
+                  </details>
+                )}
+                {r.raw_response != null && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[11px] text-slate-400 underline decoration-dotted hover:text-slate-600">
+                      API 原始返回
+                    </summary>
+                    <pre className="mt-1 max-h-48 overflow-y-auto rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-4 text-slate-500">
+                      {JSON.stringify(r.raw_response, null, 2)}
+                    </pre>
                   </details>
                 )}
               </div>

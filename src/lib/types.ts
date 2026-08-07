@@ -161,7 +161,12 @@ export interface AudioRecord {
   /** 音频文件实体（Zion FILE 列，含可直接播放的 url） */
   audio_file?: { url: string; name?: string | null; sizeBytes?: number } | null
   file_id: string | null
+  /** 角色分离后的对话文本（扣子 dialogue_result） */
   transcript: string | null
+  /** 语音识别原文（扣子 recognized_text） */
+  recognized_text?: string | null
+  /** API 完整原始返回（仅服务端角色可见） */
+  raw_response?: unknown
   status: AudioRecordStatus
   error_message: string | null
   /** 处理耗时（秒，完成或失败后落库，供前端展示与后期统计） */

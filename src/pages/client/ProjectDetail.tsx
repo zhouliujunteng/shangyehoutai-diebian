@@ -19,6 +19,7 @@ import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
 import { ClientProjectStatusBadge as ProjectStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
+import TranscriptView from '@/components/TranscriptView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -69,7 +70,7 @@ export default function ProjectDetail() {
             id name remark status review_level current_analysis_id created_at
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
-            audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } file_id transcript status error_message processing_seconds finished_at project_id created_at }
+            audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } file_id transcript recognized_text status error_message processing_seconds finished_at project_id created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -1198,19 +1199,34 @@ function AudioCard({
                 {(r.audio_file?.url || r.audio_url) && (
                   <audio controls preload="none" src={r.audio_file?.url ?? r.audio_url ?? ''} className="mt-2 h-9 w-full" />
                 )}
-                {r.status === 'done' && r.transcript && (
-                  <div className="mt-2">
+                {r.status === 'done' && (r.transcript || r.recognized_text) && (
+                  <div className="mt-2 space-y-2">
                     <button
                       type="button"
                       className="text-xs text-slate-400 underline decoration-dotted hover:text-slate-600"
                       onClick={() => setOpenTranscript(openTranscript === r.id ? null : r.id)}
                     >
-                      {openTranscript === r.id ? '收起访谈整理文本' : '查看访谈整理文本'}
+                      {openTranscript === r.id ? '收起访谈内容' : '查看访谈内容'}
                     </button>
                     {openTranscript === r.id && (
-                      <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-                        {r.transcript}
-                      </p>
+                      <>
+                        {r.transcript && (
+                          <div>
+                            <p className="mb-1 text-[11px] font-medium text-slate-400">对话内容（按说话人区分）</p>
+                            <TranscriptView transcript={r.transcript} className="max-h-96" />
+                          </div>
+                        )}
+                        {r.recognized_text && (
+                          <details>
+                            <summary className="cursor-pointer text-[11px] text-slate-400 underline decoration-dotted hover:text-slate-600">
+                              语音识别原文（未分角色）
+                            </summary>
+                            <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
+                              {r.recognized_text}
+                            </p>
+                          </details>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
