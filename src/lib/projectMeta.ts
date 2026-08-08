@@ -9,6 +9,8 @@ import type { Project } from './types'
 
 export interface ClientProjectExtra {
   analyses?: { id: number; status?: string; created_at?: string }[] | null
+  /** 是否有已完成的梳理音频（用于列表特殊标记「音频梳理」项目） */
+  audio_records?: { id: number; status?: string }[] | null
   feedback_links?:
     | {
         id: number
@@ -22,6 +24,11 @@ export interface ClientProjectExtra {
           | null
       }[]
     | null
+}
+
+/** 是否通过录音梳理出方案（有已完成的音频记录） */
+export function hasAudioSourced(p: ClientProjectExtra): boolean {
+  return (p.audio_records ?? []).some((a) => a.status === 'done')
 }
 
 export type ClientProjectMeta = Project & ClientProjectExtra

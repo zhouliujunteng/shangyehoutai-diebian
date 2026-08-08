@@ -6,6 +6,7 @@ import { formatTime, CLIENT_PROJECT_STATUS_LABEL } from '@/lib/labels'
 import { projectDisplayName } from '@/lib/types'
 import {
   clientDisplayStatus,
+  hasAudioSourced,
   hasUnseenUpdate,
   markProjectViewed,
   projectSortTs,
@@ -22,7 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
-import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw } from 'lucide-react'
+import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic } from 'lucide-react'
 
 /** 分组排序：先按状态分类（流程顺序），同状态内按更新时间倒序（先更新的在前面） */
 const STATUS_GROUP_ORDER = [
@@ -99,6 +100,7 @@ export default function ClientDashboard() {
             analyses(where: { status: { _eq: "published" } }, order_by: { id: desc }) {
               id status created_at
             }
+            audio_records(where: { status: { _eq: "done" } }, limit: 1) { id status }
             feedback_links(order_by: { id: desc }) {
               id status
               feedback_submissions(order_by: { id: desc }) {
@@ -280,7 +282,17 @@ export default function ClientDashboard() {
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-base leading-6">{projectDisplayName(p)}</CardTitle>
-                  <ProjectStatusBadge status={clientDisplayStatus(p)} />
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {hasAudioSourced(p) && (
+                      <span
+                        className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"
+                        title="该项目通过面谈录音梳理出方案"
+                      >
+                        <Mic className="h-3 w-3" /> 音频梳理
+                      </span>
+                    )}
+                    <ProjectStatusBadge status={clientDisplayStatus(p)} />
+                  </span>
                 </div>
                 {p.remark && p.name.trim() && <p className="text-xs text-slate-400">备注：{p.remark}</p>}
               </CardHeader>
@@ -314,7 +326,15 @@ export default function ClientDashboard() {
                 <span className="block truncate text-sm font-medium text-slate-800">{projectDisplayName(p)}</span>
                 {p.remark && p.name.trim() && <span className="block truncate text-xs text-slate-400">备注：{p.remark}</span>}
               </span>
-              <span className="justify-self-end sm:justify-self-start">
+              <span className="flex items-center justify-end gap-1.5 sm:justify-self-start">
+                {hasAudioSourced(p) && (
+                  <span
+                    className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"
+                    title="该项目通过面谈录音梳理出方案"
+                  >
+                    <Mic className="h-3 w-3" />
+                  </span>
+                )}
                 <ProjectStatusBadge status={clientDisplayStatus(p)} />
               </span>
               <span className="hidden text-xs text-slate-500 sm:block">
