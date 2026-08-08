@@ -20,6 +20,12 @@ export const FEEDBACK_REPLY_FLOW_ID = 'ff40034e-e1d8-4e2c-bb3c-1f839208daf0'
 /** 「音频转写填表」ActionFlow ID（异步执行：音频 URL → 扣子转写双人对话 → AI 整理填写详细版收集表；已有已发布报告时自动触发重梳） */
 export const AUDIO_FILL_FLOW_ID = 'f9f268ac-e680-4712-b98a-a62e0cd8bdda'
 
+/** 「反馈音频转写」ActionFlow ID（异步执行：反馈录音 → 转写双人对话并保存，客户可微调后提交） */
+export const FEEDBACK_TRANSCRIBE_FLOW_ID = '499209e9-475b-452c-908c-f07fb01694a9'
+
+/** 「沟通反馈处理」ActionFlow ID（异步执行：收集对话+梳理方案+本次反馈 → 智能体起草回复 → 写回审核链） */
+export const COMM_FEEDBACK_FLOW_ID = '14dc27ae-ecd0-4bdb-aa0c-666072dd825a'
+
 /** 同步调用行为流（按最新版本），失败抛错 */
 export async function invokeActionFlow(flowId: string, args: Record<string, unknown>): Promise<unknown> {
   const data = await gql<{ fz_invoke_action_flow_default_by_latest_version: unknown }>(

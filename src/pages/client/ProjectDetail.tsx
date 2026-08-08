@@ -1,28 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
-import { gql, logOperation, createActionFlowTask, ANALYZE_FLOW_ID, FEEDBACK_REPLY_FLOW_ID, AUDIO_FILL_FLOW_ID } from '@/lib/graphql'
+import { gql, logOperation, createActionFlowTask, ANALYZE_FLOW_ID, AUDIO_FILL_FLOW_ID, FEEDBACK_TRANSCRIBE_FLOW_ID, COMM_FEEDBACK_FLOW_ID } from '@/lib/graphql'
 import { buildReportDocument, downloadWord, downloadPdf } from '@/lib/exportReport'
 import { uploadFile } from '@/lib/upload'
 import { useAuth } from '@/lib/auth'
-import {
-  formatTime,
-  randomToken,
-  plusDaysISO,
-  FEEDBACK_OPTION_LABEL,
-  FEEDBACK_OPTION_DESC,
-  FEEDBACK_OPTION_ORDER,
-  AUDIO_STATUS_LABEL,
-} from '@/lib/labels'
-import { projectDisplayName, type Analysis, type AudioRecord, type FeedbackLink, type FeedbackOption, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
+import { formatTime, AUDIO_STATUS_LABEL } from '@/lib/labels'
+import { projectDisplayName, type Analysis, type AudioRecord, type CommFeedback, type Project, type Submission } from '@/lib/types'
 import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
-import { ClientProjectStatusBadge as ProjectStatusBadge, FeedbackLinkStatusBadge, FeedbackSubmissionStatusBadge } from '@/components/StatusBadge'
+import { ClientProjectStatusBadge as ProjectStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -32,24 +23,22 @@ import { DETAILED_SECTIONS } from '@/lib/forms'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
-  Copy,
   RefreshCw,
   Loader2,
-  Link2,
   FileDown,
   Printer,
   Rocket,
   Check,
   Pencil,
-  ListChecks,
-  Ban,
   Mic,
+  MessageSquareText,
+  Send,
 } from 'lucide-react'
 
 interface ProjectFull extends Project {
   submissions: Submission[]
   analyses: Analysis[]
-  feedback_links: FeedbackLink[]
+  comm_feedbacks: CommFeedback[]
   audio_records: AudioRecord[]
 }
 
@@ -71,13 +60,9 @@ export default function ProjectDetail() {
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content status current_stage published_at project_id created_at }
             audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } file_id transcript recognized_text status error_message processing_seconds finished_at project_id created_at }
-            feedback_links(order_by: { id: desc }) {
-              id token options status expires_at project_id created_at
-              feedback_submissions(order_by: { id: desc }) {
-                id form_supplement info_supplement execution_issues detail_request result_feedback
-                status filler_name filler_contact created_at
-                feedback_replies(order_by: { id: desc }) { id content status created_at }
-              }
+            comm_feedbacks(order_by: { id: desc }) {
+              id kind text_content audio_url audio_file { url name } transcript recognized_text final_text
+              transcribe_status error_message status reply_content reply_status processing_seconds project_id created_at
             }
           }
         }`,
@@ -169,9 +154,9 @@ export default function ProjectDetail() {
 
       <div className="no-print">
         {publishedAnalysis && (
-          <FeedbackCard
+          <CommFeedbackCard
             project={project}
-            links={project.feedback_links}
+            records={project.comm_feedbacks}
             username={auth!.account.username}
             onChanged={refresh}
           />
@@ -570,388 +555,6 @@ function AnalysisCard({
   )
 }
 
-/* ---------------- 方案反馈 ---------------- */
-
-const FEEDBACK_LINK_DAYS = 3
-
-function FeedbackCard({
-  project,
-  links,
-  username,
-  onChanged,
-}: {
-  project: Project & { submissions: Submission[] }
-  links: FeedbackLink[]
-  username: string
-  onChanged: () => void
-}) {
-  const [picking, setPicking] = useState(false)
-  const [selected, setSelected] = useState<FeedbackOption[]>([])
-  const [acting, setActing] = useState<string | null>(null)
-
-  // 周期门控：有进行中（未过期）的链接、或有待确认/回复中的反馈时，不可签发新链接
-  const busyCycle = links.some((l) => {
-    if (l.status === 'active' && new Date(l.expires_at).getTime() >= Date.now()) return true
-    return (l.feedback_submissions ?? []).some((s) => s.status === 'submitted' || s.status === 'confirmed')
-  })
-
-  const fullUrl = (token: string) => `${window.location.origin}${window.location.pathname}#/f/${token}`
-
-  const copyInvite = async (link: FeedbackLink) => {
-    const opts = ((link.options ?? []) as FeedbackOption[])
-    const lines = [
-      '【方案反馈邀请】',
-      `你好，${projectDisplayName(project)} 的服务团队邀请你就梳理方案反馈以下内容（均可选填）：`,
-      ...FEEDBACK_OPTION_ORDER.filter((o) => opts.includes(o)).map(
-        (o) => `- ${FEEDBACK_OPTION_LABEL[o]}：${FEEDBACK_OPTION_DESC[o]}`,
-      ),
-      `填写链接（${FEEDBACK_LINK_DAYS} 天内有效，仅可提交一次）：${fullUrl(link.token)}`,
-    ]
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'))
-      toast.success('邀请话术和链接已复制，可直接转发给填写人')
-    } catch {
-      toast.info(fullUrl(link.token))
-    }
-  }
-
-  const createLink = async () => {
-    if (selected.length === 0) {
-      toast.error('请至少勾选一项反馈内容')
-      return
-    }
-    setActing('create')
-    try {
-      await gql(
-        `mutation($obj: feedback_link_insert_input!) {
-          insert_feedback_link_one(object: $obj) { id }
-        }`,
-        {
-          obj: {
-            project_id: project.id,
-            token: randomToken(),
-            options: selected,
-            status: 'active',
-            expires_at: plusDaysISO(FEEDBACK_LINK_DAYS),
-          },
-        },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: username,
-        action: '签发方案反馈链接',
-        targetType: 'feedback_link',
-        detail: { options: selected },
-      })
-      toast.success('反馈链接已签发，复制后发送给填写人')
-      setPicking(false)
-      setSelected([])
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '签发失败')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  const closeLink = async (link: FeedbackLink) => {
-    setActing(`close-${link.id}`)
-    try {
-      await gql(
-        `mutation($id: bigint!) {
-          update_feedback_link_by_pk(pk_columns: { id: $id }, _set: { status: "closed" }) { id }
-        }`,
-        { id: link.id },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: username,
-        action: '撤回方案反馈链接',
-        targetType: 'feedback_link',
-        targetId: link.id,
-      })
-      toast.success('已撤回，填写人将无法再打开该链接')
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  const resignLink = async (link: FeedbackLink) => {
-    setActing(`resign-${link.id}`)
-    try {
-      await gql(
-        `mutation($id: bigint!, $token: String!, $exp: timestamptz!) {
-          update_feedback_link_by_pk(pk_columns: { id: $id }, _set: { token: $token, expires_at: $exp, status: "active" }) { id }
-        }`,
-        { id: link.id, token: randomToken(), exp: plusDaysISO(FEEDBACK_LINK_DAYS) },
-      )
-      await logOperation({
-        projectId: project.id,
-        operator: username,
-        action: '重新签发方案反馈链接',
-        targetType: 'feedback_link',
-        targetId: link.id,
-      })
-      toast.success(`已重新签发（${FEEDBACK_LINK_DAYS} 天有效）`)
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  /** 客户经理确认反馈：①补充表单合并进收集表（标注后补充）②状态转 confirmed ③触发智能体起草回复（自动写回审核链） */
-  const confirmSubmission = async (s: FeedbackSubmission) => {
-    setActing(`confirm-${s.id}`)
-    try {
-      const sup = s.form_supplement
-      if (sup && typeof sup === 'object') {
-        for (const [formType, fields] of Object.entries(sup)) {
-          const entries = Object.entries(fields ?? {}).filter(([, v]) => String(v).trim())
-          if (entries.length === 0) continue
-          // 合并到该项目该表单类型的最新一条收集表提交
-          const cur = await gql<{ submission: { id: number; answers: Record<string, string> | null }[] }>(
-            `query($pid: bigint!, $ft: String!) {
-              submission(where: { project_id: { _eq: $pid }, form_type: { _eq: $ft } }, order_by: { id: desc }, limit: 1) { id answers }
-            }`,
-            { pid: project.id, ft: formType },
-          )
-          const row = cur.submission[0]
-          if (!row) continue
-          const answers = { ...(row.answers ?? {}) }
-          for (const [k, v] of entries) {
-            const t = String(v).trim()
-            answers[k] = answers[k] ? `${answers[k]}\n【后补充】${t}` : `【后补充】${t}`
-          }
-          await gql(
-            `mutation($id: bigint!, $set: submission_set_input!) {
-              update_submission_by_pk(pk_columns: { id: $id }, _set: $set) { id }
-            }`,
-            { id: row.id, set: { answers } },
-          )
-        }
-      }
-      await gql(
-        `mutation($sid: bigint!) {
-          update_feedback_submission_by_pk(pk_columns: { id: $sid }, _set: { status: "confirmed" }) { id }
-        }`,
-        { sid: s.id },
-      )
-      await createActionFlowTask(FEEDBACK_REPLY_FLOW_ID, { 反馈提交ID: s.id })
-      await logOperation({
-        projectId: project.id,
-        operator: username,
-        action: '确认方案反馈（触发回复起草）',
-        targetType: 'feedback_submission',
-        targetId: s.id,
-      })
-      toast.success('已确认，服务团队回复后将在此展示')
-      onChanged()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '确认失败，请重试')
-    } finally {
-      setActing(null)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ListChecks className="h-4 w-4" /> 方案反馈
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-slate-500">
-          签发反馈链接发给企业，邀请对方就方案补充信息、提出执行问题或反馈执行结果；服务团队回复后在此展示。
-        </p>
-
-        {links.length > 0 && (
-          <div className="space-y-3">
-            {links.map((l) => {
-              const expired = l.status === 'active' && new Date(l.expires_at).getTime() < Date.now()
-              const submissions = l.feedback_submissions ?? []
-              return (
-                <div key={l.id} className="space-y-2 rounded-lg border border-slate-200 px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <FeedbackLinkStatusBadge status={expired ? 'closed' : l.status} />
-                    {expired && <span className="text-xs text-slate-400">（已过期）</span>}
-                    <span className="text-xs text-slate-400">
-                      {((l.options ?? []) as FeedbackOption[])
-                        .map((o) => FEEDBACK_OPTION_LABEL[o] ?? o)
-                        .join('、')}
-                    </span>
-                    <span className="ml-auto text-xs text-slate-400">{formatTime(l.created_at)}</span>
-                  </div>
-                  {l.status === 'active' && !expired && (
-                    <>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <code className="flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 border border-slate-200">
-                          {fullUrl(l.token)}
-                        </code>
-                        <Button variant="outline" size="sm" className="shrink-0" onClick={() => copyInvite(l)}>
-                          <Copy className="mr-1 h-4 w-4" /> 复制
-                        </Button>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                        <span>到期时间 {formatTime(l.expires_at)}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-red-500 hover:bg-red-50 hover:text-red-600"
-                          disabled={acting === `close-${l.id}`}
-                          onClick={() => closeLink(l)}
-                        >
-                          {acting === `close-${l.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Ban className="mr-1 h-3.5 w-3.5" />}
-                          撤回
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                  {(l.status === 'closed' || expired) && submissions.length === 0 && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-400">该链接{expired ? '已过期' : '已撤回'}，可重新签发后再发给填写人</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 border-amber-300 text-amber-700 hover:bg-amber-50"
-                        disabled={acting === `resign-${l.id}`}
-                        onClick={() => resignLink(l)}
-                      >
-                        {acting === `resign-${l.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                        重新签发
-                      </Button>
-                    </div>
-                  )}
-                  {submissions.map((s) => {
-                    const publishedReply = (s.feedback_replies ?? []).find((r) => r.status === 'published')
-                    return (
-                      <div key={s.id} className="rounded-lg bg-slate-50 px-3 py-2.5 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
-                          <span className="text-slate-700">{s.filler_name ?? '填写人'} 已提交反馈</span>
-                          <FeedbackSubmissionStatusBadge status={s.status} />
-                          <span className="ml-auto text-xs text-slate-400">{formatTime(s.created_at)}</span>
-                        </div>
-                        <FeedbackContentView submission={s} />
-                        {s.status === 'submitted' && (
-                          <div className="flex items-center gap-3 border-t border-slate-200 pt-2">
-                            <p className="text-xs text-slate-400">请核对反馈内容，确认后服务团队将跟进回复</p>
-                            <Button
-                              size="sm"
-                              className="ml-auto h-7 bg-slate-900 hover:bg-slate-800"
-                              disabled={acting === `confirm-${s.id}`}
-                              onClick={() => confirmSubmission(s)}
-                            >
-                              {acting === `confirm-${s.id}` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
-                              确认
-                            </Button>
-                          </div>
-                        )}
-                        {s.status === 'confirmed' && (
-                          <p className="border-t border-slate-200 pt-2 text-xs text-slate-400">已确认，服务团队回复中…</p>
-                        )}
-                        {s.status === 'replied' && publishedReply && (
-                          <div className="space-y-2 border-t border-slate-200 pt-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-medium text-slate-500">老师回复</p>
-                              <CopyTextButton text={publishedReply.content} />
-                            </div>
-                            <p className="whitespace-pre-wrap text-sm text-slate-700">{publishedReply.content}</p>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {picking ? (
-          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-4">
-            <p className="text-sm font-medium text-slate-700">勾选希望企业反馈的内容（至少一项）：</p>
-            <div className="space-y-2.5">
-              {FEEDBACK_OPTION_ORDER.map((o) => (
-                <label key={o} className="flex cursor-pointer items-start gap-2.5">
-                  <Checkbox
-                    className="mt-0.5"
-                    checked={selected.includes(o)}
-                    onCheckedChange={(v) =>
-                      setSelected((prev) => (v ? [...prev, o] : prev.filter((x) => x !== o)))
-                    }
-                  />
-                  <span className="text-sm">
-                    <span className="font-medium text-slate-800">{FEEDBACK_OPTION_LABEL[o]}</span>
-                    <span className="ml-1.5 text-xs text-slate-400">{FEEDBACK_OPTION_DESC[o]}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <Button size="sm" className="bg-slate-900 hover:bg-slate-800" disabled={acting === 'create'} onClick={createLink}>
-                {acting === 'create' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Link2 className="mr-1.5 h-4 w-4" />}
-                签发链接（{FEEDBACK_LINK_DAYS} 天有效）
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setPicking(false); setSelected([]) }}>
-                取消
-              </Button>
-            </div>
-          </div>
-        ) : busyCycle ? (
-          <p className="rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-400">
-            当前有一轮反馈正在进行中（链接待填写 / 待确认 / 回复中），本轮回复完成后才能签发新链接；如需更换反馈内容，可先撤回上方链接再重新签发。
-          </p>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
-            <Link2 className="mr-1.5 h-4 w-4" /> 签发反馈链接
-          </Button>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-/* ---------------- 反馈内容展示 ---------------- */
-
-function FeedbackContentView({ submission: s }: { submission: FeedbackSubmission }) {
-  const items: { label: string; text: string }[] = []
-  if (s.form_supplement && typeof s.form_supplement === 'object') {
-    for (const [ft, fields] of Object.entries(s.form_supplement)) {
-      const entries = Object.entries(fields ?? {}).filter(([, v]) => String(v).trim())
-      if (entries.length > 0) {
-        items.push({
-          label: `${FEEDBACK_OPTION_LABEL.form_supplement}（${ft === 'detailed' ? '详细版' : '基础版'}）`,
-          text: entries.map(([k, v]) => `${k}：${String(v).trim()}`).join('\n'),
-        })
-      }
-    }
-  }
-  const textMap: [FeedbackOption, string | null][] = [
-    ['info_supplement', s.info_supplement],
-    ['execution_issues', s.execution_issues],
-    ['detail_request', s.detail_request],
-    ['result_feedback', s.result_feedback],
-  ]
-  for (const [key, val] of textMap) {
-    if (val?.trim()) items.push({ label: FEEDBACK_OPTION_LABEL[key], text: val.trim() })
-  }
-  if (items.length === 0) return null
-  return (
-    <div className="space-y-2 border-t border-slate-200 pt-2">
-      {items.map((it) => (
-        <div key={it.label}>
-          <p className="text-xs font-medium text-slate-500">{it.label}</p>
-          <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">{it.text}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 /* ---------------- 面谈音频（音频转写填表） ---------------- */
 
@@ -1232,6 +835,329 @@ function AudioCard({
                 )}
               </div>
             ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ---------------- 沟通反馈（文字 / 录音双通道） ---------------- */
+
+/** 客户端展示状态（不出现审核/技术字眼） */
+function commDisplay(r: CommFeedback): { label: string; color: string } {
+  if (r.transcribe_status === 'transcribing') return { label: '整理中', color: 'bg-blue-50 text-blue-700 border-blue-200' }
+  if (r.transcribe_status === 'failed') return { label: '整理失败', color: 'bg-red-50 text-red-600 border-red-200' }
+  if (r.status === 'replied') return { label: '已回复', color: 'bg-green-50 text-green-700 border-green-200' }
+  if (r.status === 'in_review') return { label: '回复中', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' }
+  if (r.transcribe_status === 'transcribed') return { label: '待确认提交', color: 'bg-amber-50 text-amber-700 border-amber-200' }
+  return { label: '回复整理中', color: 'bg-blue-50 text-blue-700 border-blue-200' }
+}
+
+function CommFeedbackCard({
+  project,
+  records,
+  username,
+  onChanged,
+}: {
+  project: Project
+  records: CommFeedback[]
+  username: string
+  onChanged: () => void
+}) {
+  const [tab, setTab] = useState<'text' | 'audio'>('text')
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadPct, setUploadPct] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [confirming, setConfirming] = useState<number | null>(null)
+  const [openId, setOpenId] = useState<number | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // 有转写中/起草中的记录时，每 5 秒自动刷新
+  const busy = records.some(
+    (r) => r.transcribe_status === 'transcribing' || (r.status === 'submitted' && r.transcribe_status !== 'transcribed'),
+  )
+  useEffect(() => {
+    if (!busy) return
+    const t = setTimeout(onChanged, 5000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, records])
+
+  const sendText = async () => {
+    const v = text.trim()
+    if (!v) {
+      toast.error('请输入反馈内容')
+      return
+    }
+    setSending(true)
+    try {
+      const ins = await gql<{ insert_comm_feedback_one: { id: number } }>(
+        `mutation($obj: comm_feedback_insert_input!) {
+          insert_comm_feedback_one(object: $obj) { id }
+        }`,
+        { obj: { project_id: project.id, kind: 'text', text_content: v, transcribe_status: 'none', status: 'submitted' } },
+      )
+      const fid = ins.insert_comm_feedback_one.id
+      // 文字反馈：直接触发回复起草（结合收集对话+方案+本次反馈）
+      await gql(
+        `mutation($fid: bigint!, $ft: String!) { update_comm_feedback_by_pk(pk_columns: { id: $fid }, _set: { final_text: $ft }) { id } }`,
+        { fid, ft: v },
+      )
+      await createActionFlowTask(COMM_FEEDBACK_FLOW_ID, { 沟通反馈ID: fid })
+      await logOperation({ projectId: project.id, operator: username, action: '提交文字反馈', targetType: 'comm_feedback', targetId: fid })
+      setText('')
+      toast.success('反馈已提交，回复整理后将在此展示')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '提交失败，请重试')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const onPick = async (file: File) => {
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+    if (!AUDIO_ACCEPT.includes(ext)) {
+      toast.error('请上传音频文件（mp3 / m4a / wav / ogg / flac / aac / webm）')
+      return
+    }
+    setUploading(true)
+    try {
+      const durationSec = await readAudioDuration(file)
+      const estMin = estimateMinutes(durationSec)
+      setUploadPct(0)
+      const up = await uploadFile(file, setUploadPct)
+      const ins = await gql<{ insert_comm_feedback_one: { id: number } }>(
+        `mutation($obj: comm_feedback_insert_input!) {
+          insert_comm_feedback_one(object: $obj) { id }
+        }`,
+        {
+          obj: {
+            project_id: project.id,
+            kind: 'audio',
+            audio_url: up.downloadUrl,
+            audio_file_id: up.fileDbId,
+            transcribe_status: 'transcribing',
+            status: 'submitted',
+          },
+        },
+      )
+      const fid = ins.insert_comm_feedback_one.id
+      saveEstimate(fid, estMin)
+      await createActionFlowTask(FEEDBACK_TRANSCRIBE_FLOW_ID, { 沟通反馈ID: fid })
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '上传反馈录音',
+        targetType: 'comm_feedback',
+        targetId: fid,
+        detail: { file_name: file.name },
+      })
+      toast.success(`录音已上传，预计整理约 ${estMin} 分钟，完成后请核对内容再提交`, { duration: 8000 })
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '上传失败，请重试')
+    } finally {
+      setUploading(false)
+      setUploadPct(null)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const confirmAudio = async (r: CommFeedback, finalText: string) => {
+    setConfirming(r.id)
+    try {
+      await gql(
+        `mutation($id: bigint!, $ft: String!) { update_comm_feedback_by_pk(pk_columns: { id: $id }, _set: { final_text: $ft }) { id } }`,
+        { id: r.id, ft: finalText.trim() },
+      )
+      await createActionFlowTask(COMM_FEEDBACK_FLOW_ID, { 沟通反馈ID: r.id })
+      await logOperation({ projectId: project.id, operator: username, action: '确认反馈录音内容并提交', targetType: 'comm_feedback', targetId: r.id })
+      toast.success('已提交，回复整理后将在此展示')
+      setEditingId(null)
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '提交失败，请重试')
+    } finally {
+      setConfirming(null)
+    }
+  }
+
+  const retryTranscribe = async (r: CommFeedback) => {
+    setConfirming(r.id)
+    try {
+      await createActionFlowTask(FEEDBACK_TRANSCRIBE_FLOW_ID, { 沟通反馈ID: r.id })
+      toast.success('已重新触发整理')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '触发失败')
+    } finally {
+      setConfirming(null)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageSquareText className="h-4 w-4" /> 方案反馈
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-sm text-slate-500">
+          方案执行中遇到的情况、问题或结果，随时反馈：可以直接写文字，也可以上传沟通录音；服务团队回复后在此展示。
+        </p>
+
+        {/* 发起反馈 */}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'text' | 'audio')}>
+          <TabsList>
+            <TabsTrigger value="text">文字反馈</TabsTrigger>
+            <TabsTrigger value="audio">录音反馈</TabsTrigger>
+          </TabsList>
+          <TabsContent value="text" className="space-y-3 pt-4">
+            <Textarea
+              rows={4}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="描述方案执行中的情况、遇到的问题或取得的结果…"
+            />
+            <Button className="bg-slate-900 hover:bg-slate-800" size="sm" disabled={sending} onClick={sendText}>
+              {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
+              提交反馈
+            </Button>
+          </TabsContent>
+          <TabsContent value="audio" className="space-y-3 pt-4">
+            <input
+              ref={fileRef}
+              type="file"
+              accept={AUDIO_ACCEPT.map((e) => '.' + e).join(',')}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onPick(f)
+              }}
+            />
+            <Button
+              className="bg-slate-900 hover:bg-slate-800"
+              size="sm"
+              disabled={uploading || busy}
+              onClick={() => fileRef.current?.click()}
+              title={busy ? '有反馈正在整理中，完成后再上传' : undefined}
+            >
+              {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mic className="mr-1.5 h-4 w-4" />}
+              {uploading ? '上传中…' : '上传沟通录音'}
+            </Button>
+            {uploading && uploadPct !== null && (
+              <div className="flex items-center gap-3">
+                <Progress value={uploadPct} className="h-2 flex-1" />
+                <span className="w-10 text-right text-xs text-slate-500">{uploadPct}%</span>
+              </div>
+            )}
+            <p className="text-xs text-slate-400">上传后自动整理对话内容，你确认无误再提交，服务团队据此回复</p>
+          </TabsContent>
+        </Tabs>
+
+        {busy && (
+          <p className="flex items-center text-sm text-blue-600">
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> 正在整理，页面会自动刷新…
+          </p>
+        )}
+
+        {/* 反馈记录 */}
+        {records.length > 0 && (
+          <div className="space-y-3">
+            {records.map((r) => {
+              const d = commDisplay(r)
+              const needConfirm = r.transcribe_status === 'transcribed' && r.status === 'submitted' && !r.reply_content
+              return (
+                <div key={r.id} className="space-y-2 rounded-lg border border-slate-200 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+                      {r.kind === 'audio' ? '录音反馈' : '文字反馈'}
+                    </span>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs ${d.color}`}>{d.label}</span>
+                    {r.kind === 'audio' && r.processing_seconds != null && (
+                      <span className="text-xs text-slate-400">耗时 {formatDuration(r.processing_seconds)}</span>
+                    )}
+                    <span className="ml-auto text-xs text-slate-400">{formatTime(r.created_at)}</span>
+                  </div>
+
+                  {r.transcribe_status === 'failed' && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="flex-1 text-xs text-red-500">{r.error_message ?? '整理失败'}</p>
+                      <Button variant="outline" size="sm" className="h-7" disabled={confirming === r.id} onClick={() => retryTranscribe(r)}>
+                        {confirming === r.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                        重试
+                      </Button>
+                    </div>
+                  )}
+
+                  {r.kind === 'text' && <p className="whitespace-pre-wrap text-sm text-slate-700">{r.text_content}</p>}
+
+                  {r.kind === 'audio' && (r.audio_file?.url || r.audio_url) && (
+                    <audio controls preload="none" src={r.audio_file?.url ?? r.audio_url ?? ''} className="h-9 w-full" />
+                  )}
+
+                  {r.kind === 'audio' && r.transcript && (
+                    <div>
+                      <button
+                        type="button"
+                        className="text-xs text-slate-400 underline decoration-dotted hover:text-slate-600"
+                        onClick={() => setOpenId(openId === r.id ? null : r.id)}
+                      >
+                        {openId === r.id ? '收起对话内容' : '查看对话内容'}
+                      </button>
+                      {openId === r.id && <TranscriptView transcript={r.transcript} className="mt-2 max-h-96" />}
+                    </div>
+                  )}
+
+                  {/* 转写完成：客户核对/微调后提交 */}
+                  {needConfirm && (
+                    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                      {editingId === r.id ? (
+                        <>
+                          <p className="text-xs text-amber-700">请核对整理后的内容，可直接修改，确认无误后提交：</p>
+                          <Textarea rows={8} value={editDraft} onChange={(e) => setEditDraft(e.target.value)} />
+                          <div className="flex gap-3">
+                            <Button size="sm" className="bg-slate-900 hover:bg-slate-800" disabled={confirming === r.id} onClick={() => confirmAudio(r, editDraft)}>
+                              {confirming === r.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+                              确认提交
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>取消</Button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <p className="flex-1 text-xs text-amber-700">对话内容已整理好，请核对后提交</p>
+                          <Button variant="outline" size="sm" className="h-7" onClick={() => { setEditDraft(r.final_text ?? r.transcript ?? ''); setEditingId(r.id) }}>
+                            <Pencil className="mr-1 h-3.5 w-3.5" /> 核对 / 修改
+                          </Button>
+                          <Button size="sm" className="h-7 bg-slate-900 hover:bg-slate-800" disabled={confirming === r.id} onClick={() => confirmAudio(r, r.final_text ?? r.transcript ?? '')}>
+                            {confirming === r.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+                            直接提交
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 已回复：展示回复内容 */}
+                  {r.status === 'replied' && r.reply_content && (
+                    <div className="space-y-2 border-t border-slate-200 pt-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-slate-500">老师回复</p>
+                        <CopyTextButton text={r.reply_content} />
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-700">{r.reply_content}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </CardContent>

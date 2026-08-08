@@ -14,12 +14,12 @@ import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import { Loader2, ArrowRight, Search, RefreshCw } from 'lucide-react'
 
-interface FeedbackRow {
+interface CommRow {
   id: number
   status: string
+  reply_status?: string | null
   created_at?: string
-  link?: { project_id: number; project?: { id: number; name: string } | null } | null
-  feedback_replies?: { id: number; status: string; current_stage: number; created_at?: string }[]
+  project?: { id: number; name: string } | null
 }
 
 interface ProjectGroup {
@@ -51,33 +51,30 @@ export default function RepliesList() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await gql<{ feedback_submission: FeedbackRow[] }>(
+      const data = await gql<{ comm_feedback: CommRow[] }>(
         `query {
-          feedback_submission(order_by: { id: desc }) {
-            id status created_at
-            link { project_id project { id name } }
-            feedback_replies(order_by: { id: desc }, limit: 1) { id status current_stage created_at }
+          comm_feedback(order_by: { id: desc }) {
+            id status reply_status created_at
+            project { id name }
           }
         }`,
       )
-      const needMe = (f: FeedbackRow): boolean => {
-        const r = f.feedback_replies?.[0]
+      const needMe = (f: CommRow): boolean => {
         if (f.status === 'replied') return false
-        if (r && r.status === 'superseded') return true // 草稿被作废待重写
-        if (!r) return true // 反馈未起草回复，任何服务端人员可处理
-        return r.status === myPending
+        if (!f.reply_status) return true // 反馈未起草回复，任何服务端人员可处理
+        return f.reply_status === myPending
       }
       const map = new Map<number, ProjectGroup>()
       const bumpTime = (g: ProjectGroup, ts?: string) => {
         if (ts && new Date(ts).getTime() > new Date(g.latestTime ?? 0).getTime()) g.latestTime = ts
       }
-      for (const f of data.feedback_submission) {
-        const pid = f.link?.project_id
+      for (const f of data.comm_feedback) {
+        const pid = f.project?.id
         if (!pid) continue
         if (!map.has(pid)) {
           map.set(pid, {
             project_id: pid,
-            name: f.link?.project?.name ?? `项目 #${pid}`,
+            name: f.project?.name ?? `项目 #${pid}`,
             feedbackCount: 0,
             needMeCount: 0,
             latestTime: f.created_at,
@@ -87,10 +84,8 @@ export default function RepliesList() {
         const g = map.get(pid)!
         g.feedbackCount += 1
         if (needMe(f)) g.needMeCount += 1
-        const r = f.feedback_replies?.[0]
-        if (r && !g.latestReplyStatus && r.status !== 'superseded') g.latestReplyStatus = r.status
+        if (f.reply_status && !g.latestReplyStatus) g.latestReplyStatus = f.reply_status
         bumpTime(g, f.created_at)
-        bumpTime(g, r?.created_at)
       }
       setGroups([...map.values()])
     } catch (e) {

@@ -150,6 +150,40 @@ export interface OperationLog {
   created_at?: string
 }
 
+/* ---------- 沟通反馈（文字/录音双通道） ---------- */
+
+export type CommFeedbackKind = 'text' | 'audio'
+
+/** 转写状态：none 无需转写 / transcribing 转写中 / transcribed 待确认 / failed 失败 */
+export type CommTranscribeStatus = 'none' | 'transcribing' | 'transcribed' | 'failed'
+
+/** 整体状态：submitted 已提交待起草 / in_review 回复审核中 / replied 已回复 */
+export type CommFeedbackStatus = 'submitted' | 'in_review' | 'replied'
+
+export interface CommFeedback {
+  id: number
+  kind: CommFeedbackKind
+  text_content: string | null
+  audio_file?: { url: string; name?: string | null } | null
+  audio_url?: string | null
+  /** 去噪后的角色分离对话（录音反馈） */
+  transcript?: string | null
+  recognized_text?: string | null
+  /** 客户确认/微调后的最终材料（录音反馈可编辑） */
+  final_text?: string | null
+  transcribe_status: CommTranscribeStatus
+  error_message?: string | null
+  status: CommFeedbackStatus
+  reply_content?: string | null
+  reply_status?: string | null
+  current_stage?: number | null
+  processing_seconds?: number | null
+  finished_at?: string | null
+  raw_response?: unknown
+  project_id: number
+  created_at?: string
+}
+
 /* ---------- 音频转写填表 ---------- */
 
 export type AudioRecordStatus = 'uploaded' | 'processing' | 'done' | 'failed'

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import ReactMarkdown from 'react-markdown'
-import { gql, logOperation, createActionFlowTask, waitActionFlowResult, FEEDBACK_REPLY_FLOW_ID } from '@/lib/graphql'
+import { gql, logOperation, createActionFlowTask, waitActionFlowResult, FEEDBACK_REPLY_FLOW_ID, COMM_FEEDBACK_FLOW_ID } from '@/lib/graphql'
 import { useAuth, myReviewLevel, pendingStatusForLevel } from '@/lib/auth'
 import { nextReviewStage, initialReviewStage, formatTime, FEEDBACK_OPTION_LABEL, AUDIO_STATUS_LABEL } from '@/lib/labels'
 import { markProjectViewed } from '@/lib/projectMeta'
-import { projectDisplayName, type Analysis, type AudioRecord, type FeedbackLink, type FeedbackOption, type FeedbackReply, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
+import { projectDisplayName, type Analysis, type AudioRecord, type CommFeedback, type FeedbackLink, type FeedbackOption, type FeedbackReply, type FeedbackSubmission, type Project, type Submission } from '@/lib/types'
 import { ReviewStatusBadge, ProjectStatusBadge, FeedbackSubmissionStatusBadge, FeedbackLinkStatusBadge } from '@/components/StatusBadge'
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
@@ -24,6 +24,7 @@ interface ProjectFull extends Project {
   analyses: Analysis[]
   feedback_links: (FeedbackLink & { feedback_submissions: FeedbackSubmission[] })[]
   audio_records: AudioRecord[]
+  comm_feedbacks: CommFeedback[]
 }
 
 export default function ProjectReplies() {
@@ -37,6 +38,10 @@ export default function ProjectReplies() {
   const [fbComments, setFbComments] = useState<Record<number, string>>({})
   const [fbDrafting, setFbDrafting] = useState<Record<number, boolean>>({})
   const [acting, setActing] = useState<string | null>(null)
+  // 沟通反馈：回复编辑内容 / 审核备注 / 起草中状态（按反馈 ID）
+  const [cfContents, setCfContents] = useState<Record<number, string>>({})
+  const [cfComments, setCfComments] = useState<Record<number, string>>({})
+  const [cfDrafting, setCfDrafting] = useState<Record<number, boolean>>({})
 
   const myLevel = myReviewLevel(auth?.account)
   const myName = auth?.account.username ?? ''
@@ -54,6 +59,7 @@ export default function ProjectReplies() {
             submissions(order_by: { id: desc }) { id form_type filler_name filler_contact answers is_supplement project_id created_at }
             analyses(order_by: { id: desc }) { id version content internal_ref status current_stage project_id created_at }
             audio_records(order_by: { id: desc }) { id file_name audio_url audio_file { url name sizeBytes } transcript recognized_text raw_response status error_message processing_seconds created_at }
+            comm_feedbacks(order_by: { id: desc }) { id kind text_content final_text transcript recognized_text audio_file { url name } transcribe_status error_message status reply_content reply_status current_stage created_at }
             feedback_links(order_by: { id: desc }) {
               id token options status expires_at project_id created_at
               feedback_submissions(order_by: { id: desc }) {
@@ -78,6 +84,12 @@ export default function ProjectReplies() {
         }
       }
       setFbContents(fbInit)
+      // 初始化沟通反馈的回复编辑内容
+      const cfInit: Record<number, string> = {}
+      for (const r of data.project_by_pk?.comm_feedbacks ?? []) {
+        cfInit[r.id] = r.status !== 'replied' ? (r.reply_content ?? '') : ''
+      }
+      setCfContents(cfInit)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -245,6 +257,112 @@ export default function ProjectReplies() {
     }
   }
 
+  /* ---------------- 沟通反馈处理 ---------------- */
+
+  /** 调用「沟通反馈处理」行为流：结合收集对话+梳理方案+本次反馈起草回复，自动写回审核链 */
+  const generateCfDraft = async (r: CommFeedback) => {
+    setCfDrafting((p) => ({ ...p, [r.id]: true }))
+    try {
+      const taskId = await createActionFlowTask(COMM_FEEDBACK_FLOW_ID, { 沟通反馈ID: r.id })
+      await waitActionFlowResult(taskId)
+      toast.success('草稿已生成，请审核修改')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '起草失败，请重试')
+    } finally {
+      setCfDrafting((p) => ({ ...p, [r.id]: false }))
+    }
+  }
+
+  /** 手工起草沟通反馈回复并进入审核链（系统草稿不存在时的兜底） */
+  const createCfReply = async (r: CommFeedback) => {
+    const content = (cfContents[r.id] ?? '').trim()
+    if (!content) {
+      toast.error('请输入回复内容')
+      return
+    }
+    setActing(`cf-create-${r.id}`)
+    try {
+      const init = initialReviewStage(reviewLevel)
+      await gql(
+        `mutation($id: bigint!, $c: String!, $st: String!, $stage: bigint!) {
+          update_comm_feedback_by_pk(pk_columns: { id: $id }, _set: { reply_content: $c, reply_status: $st, current_stage: $stage, status: "in_review" }) { id }
+        }`,
+        { id: r.id, c: content, st: init.status, stage: init.current_stage },
+      )
+      await logOperation({ projectId: project!.id, operator: myName, action: '起草沟通反馈回复并提交审核', targetType: 'comm_feedback', targetId: r.id })
+      toast.success('回复已提交，进入审核流程')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '提交失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  /** 仅保存沟通反馈回复当前级补充内容 */
+  const saveCfOnly = async (r: CommFeedback) => {
+    setActing(`cf-save-${r.id}`)
+    try {
+      await gql(
+        `mutation($id: bigint!, $c: String!) {
+          update_comm_feedback_by_pk(pk_columns: { id: $id }, _set: { reply_content: $c }) { id }
+        }`,
+        { id: r.id, c: (cfContents[r.id] ?? '').trim() },
+      )
+      toast.success('已保存')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  /** 沟通反馈当前级审核通过：终审后客户端可见 */
+  const approveCf = async (r: CommFeedback) => {
+    setActing(`cf-approve-${r.id}`)
+    try {
+      const next = nextReviewStage(r.current_stage ?? reviewLevel)
+      const done = next.status === 'published'
+      await gql(
+        `mutation($id: bigint!, $c: String!, $st: String!, $stage: bigint!, $fstatus: String!, $rec: review_record_insert_input!) {
+          update_comm_feedback_by_pk(pk_columns: { id: $id }, _set: { reply_content: $c, reply_status: $st, current_stage: $stage, status: $fstatus }) { id }
+          insert_review_record_one(object: $rec) { id }
+        }`,
+        {
+          id: r.id,
+          c: (cfContents[r.id] ?? '').trim(),
+          st: next.status,
+          stage: next.current_stage,
+          fstatus: done ? 'replied' : 'in_review',
+          rec: {
+            project_id: project!.id,
+            target_type: 'comm_feedback',
+            target_id: String(r.id),
+            level: myLevel,
+            reviewer: myName,
+            decision: 'approved',
+            comment: (cfComments[r.id] ?? '').trim() || null,
+          },
+        },
+      )
+      await logOperation({
+        projectId: project!.id,
+        operator: myName,
+        action: done ? '沟通反馈回复终审通过，已发送客户' : `沟通反馈回复 ${myLevel} 级审核通过，流转下一级`,
+        targetType: 'comm_feedback',
+        targetId: r.id,
+      })
+      toast.success(done ? '回复已通过终审并发送给客户' : '已通过，流转至下一级')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '操作失败')
+    } finally {
+      setActing(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -381,6 +499,162 @@ export default function ProjectReplies() {
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {/* 沟通反馈（文字/录音，回复走审核链，终审后客户端可见） */}
+      {project.comm_feedbacks.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-base font-semibold text-slate-900">沟通反馈（{project.comm_feedbacks.length}）</h2>
+          {[...project.comm_feedbacks].reverse().map((r, idx) => {
+            const myTurn = r.status === 'in_review' && (isPrivileged || r.reply_status === pendingStatusForLevel(myLevel))
+            const isFinal = (r.current_stage ?? reviewLevel) === 1
+            return (
+              <Card key={r.id}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                    反馈 {idx + 1}
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-normal text-slate-600">
+                      {r.kind === 'audio' ? '录音反馈' : '文字反馈'}
+                    </span>
+                    {r.status === 'replied' ? (
+                      <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-normal text-green-700">已回复</span>
+                    ) : r.status === 'in_review' ? (
+                      <ReviewStatusBadge status={r.reply_status ?? 'pending_l3'} />
+                    ) : (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-normal text-amber-700">待起草</span>
+                    )}
+                    <span className="ml-auto text-xs font-normal text-slate-400">{formatTime(r.created_at)}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* 反馈内容 */}
+                  <div className="space-y-2 rounded-lg bg-slate-50 px-4 py-3">
+                    {r.kind === 'text' ? (
+                      <p className="whitespace-pre-wrap text-sm text-slate-800">{r.text_content}</p>
+                    ) : (
+                      <>
+                        {(r.audio_file?.url || r.audio_url) && (
+                          <audio controls preload="none" src={r.audio_file?.url ?? r.audio_url ?? ''} className="h-9 w-full" />
+                        )}
+                        {r.transcribe_status === 'transcribing' && (
+                          <p className="text-xs text-blue-600">对话内容整理中…</p>
+                        )}
+                        {r.transcribe_status === 'failed' && (
+                          <p className="text-xs text-red-500">{r.error_message ?? '整理失败'}</p>
+                        )}
+                        {r.final_text && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-slate-500">整理后的沟通内容（客户经理已核对）</p>
+                            <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700">{r.final_text}</p>
+                          </div>
+                        )}
+                        {r.transcript && (
+                          <details>
+                            <summary className="cursor-pointer text-[11px] text-slate-400 underline decoration-dotted hover:text-slate-600">
+                              对话内容（按说话人区分）
+                            </summary>
+                            <TranscriptView transcript={r.transcript} className="mt-2 max-h-80" />
+                          </details>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* 回复区 */}
+                  {r.status === 'replied' && r.reply_content ? (
+                    <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-slate-500">老师回复（已发送）</p>
+                        <CopyTextButton text={r.reply_content} />
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-700">{r.reply_content}</p>
+                    </div>
+                  ) : r.status !== 'in_review' ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="text-sm">起草回复（提交后按 {reviewLevel} 级审核链流转，每级可补充）</Label>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                          disabled={acting !== null || !!cfDrafting[r.id] || (r.kind === 'audio' && r.transcribe_status !== 'transcribed')}
+                          onClick={() => generateCfDraft(r)}
+                          title={r.kind === 'audio' && r.transcribe_status !== 'transcribed' ? '等待客户确认整理内容' : '结合收集对话+梳理方案+本次反馈起草'}
+                        >
+                          <Sparkles className="mr-1 h-3.5 w-3.5" /> 专家起草
+                        </Button>
+                      </div>
+                      {cfDrafting[r.id] ? (
+                        <AiDraftingPanel />
+                      ) : (
+                        <Textarea
+                          rows={4}
+                          value={cfContents[r.id] ?? ''}
+                          onChange={(e) => setCfContents((p) => ({ ...p, [r.id]: e.target.value }))}
+                          placeholder="输入回复内容…"
+                        />
+                      )}
+                      <Button className="bg-slate-900 hover:bg-slate-800" disabled={acting !== null} onClick={() => createCfReply(r)}>
+                        {acting === `cf-create-${r.id}` ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
+                        提交回复进入审核
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="text-sm">
+                          回复内容（当前 {r.current_stage ?? reviewLevel} 级节点{myTurn ? ' · 待我处理，可补充修改' : ' · 非我的节点，只读'}）
+                        </Label>
+                        {myTurn && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                            disabled={acting !== null || !!cfDrafting[r.id]}
+                            onClick={() => generateCfDraft(r)}
+                            title="用系统重新起草，将覆盖当前回复内容"
+                          >
+                            <Sparkles className="mr-1 h-3.5 w-3.5" /> 专家重写
+                          </Button>
+                        )}
+                      </div>
+                      {cfDrafting[r.id] ? (
+                        <AiDraftingPanel />
+                      ) : (
+                        <Textarea
+                          rows={5}
+                          value={cfContents[r.id] ?? ''}
+                          onChange={(e) => setCfContents((p) => ({ ...p, [r.id]: e.target.value }))}
+                          disabled={!myTurn}
+                        />
+                      )}
+                      {myTurn && (
+                        <>
+                          <Textarea
+                            rows={2}
+                            value={cfComments[r.id] ?? ''}
+                            onChange={(e) => setCfComments((p) => ({ ...p, [r.id]: e.target.value }))}
+                            placeholder="本级审核备注（可选）…"
+                          />
+                          <div className="flex flex-wrap gap-3">
+                            <Button variant="outline" disabled={acting !== null} onClick={() => saveCfOnly(r)}>
+                              {acting === `cf-save-${r.id}` ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
+                              仅保存
+                            </Button>
+                            <Button className="bg-green-600 hover:bg-green-700" disabled={acting !== null} onClick={() => approveCf(r)}>
+                              {acting === `cf-approve-${r.id}` ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
+                              {isFinal ? '终审通过并发送' : '通过，流转下一级'}
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
 
       {/* 方案反馈 */}
