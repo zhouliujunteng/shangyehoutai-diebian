@@ -19,6 +19,17 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { DETAILED_SECTIONS } from '@/lib/forms'
 import { toast } from 'sonner'
 import {
@@ -33,6 +44,7 @@ import {
   Mic,
   MessageSquareText,
   Send,
+  Trash2,
 } from 'lucide-react'
 
 interface ProjectFull extends Project {
@@ -624,6 +636,7 @@ function AudioCard({
   const [uploading, setUploading] = useState(false)
   const [uploadPct, setUploadPct] = useState<number | null>(null)
   const [retrying, setRetrying] = useState<number | null>(null)
+  const [deleting, setDeleting] = useState<number | null>(null)
   const [openTranscript, setOpenTranscript] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -712,6 +725,33 @@ function AudioCard({
     }
   }
 
+  // 上传错了可删除重传：整理中的记录删除后整理流程会因找不到记录而终止
+  const remove = async (r: AudioRecord) => {
+    setDeleting(r.id)
+    try {
+      await gql(`mutation($id: bigint!) { delete_audio_record_by_pk(id: $id) { id } }`, { id: r.id })
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '删除面谈音频',
+        targetType: 'audio_record',
+        targetId: r.id,
+        detail: { file_name: r.file_name, 删除前状态: r.status },
+      })
+      try {
+        localStorage.removeItem(estKey(r.id))
+      } catch {
+        /* ignore */
+      }
+      toast.success('音频已删除，可重新上传')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '删除失败，请重试')
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   const statusColor = (st: string) =>
     st === 'done'
       ? 'bg-green-50 text-green-700 border-green-200'
@@ -783,6 +823,35 @@ function AudioCard({
                     {AUDIO_STATUS_LABEL[r.status] ?? r.status}
                   </span>
                   <span className="text-xs text-slate-400">{formatTime(r.created_at)}</span>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-slate-400 hover:text-red-600"
+                        disabled={deleting === r.id}
+                        title="删除该音频"
+                      >
+                        {deleting === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>删除这条音频？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          「{r.file_name ?? '音频文件'}」删除后不可恢复，可重新上传正确的录音。
+                          {(r.status === 'uploaded' || r.status === 'processing') && '该音频正在整理中，删除后整理将终止。'}
+                          {r.status === 'done' && '删除仅移除音频记录，已整理到企业信息的内容不会撤回。'}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>取消</AlertDialogCancel>
+                        <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => remove(r)}>
+                          确认删除
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
                 {r.status === 'failed' && (
                   <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -873,6 +942,7 @@ function CommFeedbackCard({
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState('')
   const [confirming, setConfirming] = useState<number | null>(null)
+  const [deleting, setDeleting] = useState<number | null>(null)
   const [openId, setOpenId] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -1000,6 +1070,33 @@ function CommFeedbackCard({
     }
   }
 
+  // 录音传错了可删除重传：仅允许在尚未提交给服务团队（未进入回复流程）前删除
+  const removeAudio = async (r: CommFeedback) => {
+    setDeleting(r.id)
+    try {
+      await gql(`mutation($id: bigint!) { delete_comm_feedback_by_pk(id: $id) { id } }`, { id: r.id })
+      await logOperation({
+        projectId: project.id,
+        operator: username,
+        action: '删除反馈录音',
+        targetType: 'comm_feedback',
+        targetId: r.id,
+        detail: { 删除前转写状态: r.transcribe_status },
+      })
+      try {
+        localStorage.removeItem(estKey(r.id))
+      } catch {
+        /* ignore */
+      }
+      toast.success('录音已删除，可重新上传')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '删除失败，请重试')
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -1073,6 +1170,8 @@ function CommFeedbackCard({
             {records.map((r) => {
               const d = commDisplay(r)
               const needConfirm = r.transcribe_status === 'transcribed' && r.status === 'submitted' && !r.reply_content
+              // 录音传错了可删除重传；已提交进入回复流程（in_review / replied）后不可删除
+              const deletable = r.kind === 'audio' && r.status === 'submitted' && !r.reply_content
               return (
                 <div key={r.id} className="space-y-2 rounded-lg border border-slate-200 px-4 py-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1084,6 +1183,36 @@ function CommFeedbackCard({
                       <span className="text-xs text-slate-400">耗时 {formatDuration(r.processing_seconds)}</span>
                     )}
                     <span className="ml-auto text-xs text-slate-400">{formatTime(r.created_at)}</span>
+                    {deletable && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-slate-400 hover:text-red-600"
+                            disabled={deleting === r.id}
+                            title="删除该录音"
+                          >
+                            {deleting === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>删除这条录音反馈？</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              录音和已整理的内容会一并删除，删除后不可恢复，可重新上传正确的录音。
+                              {r.transcribe_status === 'transcribing' && '该录音正在整理中，删除后整理将终止。'}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>取消</AlertDialogCancel>
+                            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => removeAudio(r)}>
+                              确认删除
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
 
                   {r.transcribe_status === 'failed' && (
