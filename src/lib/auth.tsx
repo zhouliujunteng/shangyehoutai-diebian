@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(AUTH_KEY, JSON.stringify({ token, account: { id: payload.account.id } }))
     const detail = await gql<{ account_by_pk: Account | null }>(
       `query($id: bigint!) {
-        account_by_pk(id: $id) { id username nickname fz_phone_number account_type reviewer_level project_quota status }
+        account_by_pk(id: $id) { id username nickname fz_phone_number account_type reviewer_level project_quota status consultant_id }
       }`,
       { id: payload.account.id },
     )
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!stored) return
     const detail = await gql<{ account_by_pk: Account | null }>(
       `query($id: bigint!) {
-        account_by_pk(id: $id) { id username nickname fz_phone_number account_type reviewer_level project_quota status }
+        account_by_pk(id: $id) { id username nickname fz_phone_number account_type reviewer_level project_quota status consultant_id }
       }`,
       { id: stored.account.id },
     )
@@ -118,6 +118,13 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
+/** 各角色登录后的首页：客户（企业主）→ /customer；顾问 → /client；其余 → /server */
+export function homeFor(accountType: AccountType): string {
+  if (accountType === 'customer') return '/customer'
+  if (accountType === 'client') return '/client'
+  return '/server'
+}
+
 /** 路由守卫：未登录跳登录页；角色不符跳对应首页 */
 export function RequireAuth({ roles, children }: { roles: AccountType[]; children: ReactNode }) {
   const { auth, loading } = useAuth()
@@ -132,8 +139,7 @@ export function RequireAuth({ roles, children }: { roles: AccountType[]; childre
     return <Navigate to="/login" replace />
   }
   if (!roles.includes(auth.account.account_type)) {
-    const home = auth.account.account_type === 'client' ? '/client' : '/server'
-    return <Navigate to={home} replace />
+    return <Navigate to={homeFor(auth.account.account_type)} replace />
   }
   return <>{children}</>
 }

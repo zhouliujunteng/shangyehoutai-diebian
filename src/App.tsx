@@ -7,6 +7,8 @@ import FillPage from '@/pages/fill/FillPage'
 import ClientLayout from '@/pages/client/ClientLayout'
 import ClientDashboard from '@/pages/client/ClientDashboard'
 import ProjectDetail from '@/pages/client/ProjectDetail'
+import CustomerLayout from '@/pages/customer/CustomerLayout'
+import CustomerDashboard from '@/pages/customer/CustomerDashboard'
 import ServerLayout from '@/pages/server/ServerLayout'
 import ProjectsOverview from '@/pages/server/ProjectsOverview'
 import ReviewWorkbench from '@/pages/server/ReviewWorkbench'
@@ -32,6 +34,18 @@ export default function App() {
           }
         >
           <Route index element={<ClientDashboard />} />
+          <Route path="project/:id" element={<ProjectDetail />} />
+          <Route path="settings" element={<AccountSettings />} />
+        </Route>
+        <Route
+          path="/customer"
+          element={
+            <RequireAuth roles={['customer']}>
+              <CustomerLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<CustomerDashboard />} />
           <Route path="project/:id" element={<ProjectDetail />} />
           <Route path="settings" element={<AccountSettings />} />
         </Route>

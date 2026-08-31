@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useLocation, Navigate } from 'react-router'
-import { useAuth } from '@/lib/auth'
+import { useAuth, homeFor } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,8 +19,7 @@ export default function Login() {
 
   // 已登录则直接跳对应首页
   if (auth) {
-    const home = auth.account.account_type === 'client' ? '/client' : '/server'
-    return <Navigate to={home} replace />
+    return <Navigate to={homeFor(auth.account.account_type)} replace />
   }
 
   const onSubmit = async (e: FormEvent) => {
@@ -34,8 +33,7 @@ export default function Login() {
       const account = await login(username.trim(), password)
       toast.success(`欢迎，${account.username}`)
       const from = (location.state as { from?: string } | null)?.from
-      const home = account.account_type === 'client' ? '/client' : '/server'
-      navigate(from && from !== '/login' ? from : home, { replace: true })
+      navigate(from && from !== '/login' ? from : homeFor(account.account_type), { replace: true })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '登录失败，请重试')
     } finally {

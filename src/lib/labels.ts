@@ -60,7 +60,8 @@ export const QUESTION_STATUS_LABEL: Record<string, string> = {
 
 export const ACCOUNT_TYPE_LABEL: Record<string, string> = {
   super_admin: '超级管理员',
-  client: '客户',
+  client: '顾问',
+  customer: '客户',
   reviewer: '审核员',
 }
 

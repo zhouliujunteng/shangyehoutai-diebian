@@ -1,4 +1,5 @@
-export type AccountType = 'super_admin' | 'client' | 'reviewer'
+/** client=顾问（原客户服务账号，沿用历史值）；customer=客户（企业主本人） */
+export type AccountType = 'super_admin' | 'client' | 'reviewer' | 'customer'
 export type AccountStatus = 'active' | 'disabled'
 
 export interface Account {
@@ -12,6 +13,8 @@ export interface Account {
   reviewer_level: number | null
   project_quota: number
   status: AccountStatus
+  /** 认领该客户（customer）的顾问账号 id；未认领为空 */
+  consultant_id?: number | null
 }
 
 /** 账号展示名：优先昵称，未设置回退用户名 */

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 import { gql, logOperation } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { formatTime, CLIENT_PROJECT_STATUS_LABEL } from '@/lib/labels'
-import { projectDisplayName } from '@/lib/types'
+import { projectDisplayName, accountDisplayName, type Account } from '@/lib/types'
 import {
   clientDisplayStatus,
   hasAudioSourced,
@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
-import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic } from 'lucide-react'
+import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic, UserCheck, UserX } from 'lucide-react'
 
 /** 分组排序：先按状态分类（流程顺序），同状态内按更新时间倒序（先更新的在前面） */
 const STATUS_GROUP_ORDER = [
@@ -59,6 +59,9 @@ export default function ClientDashboard() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
+  // 客户认领：全部客户账号（account_type=customer），consultant_id 标识被谁认领
+  const [customers, setCustomers] = useState<Account[]>([])
+  const [claiming, setClaiming] = useState<string | null>(null)
 
   const quota = auth?.account.project_quota ?? 0
   const used = projects.length
@@ -115,6 +118,15 @@ export default function ClientDashboard() {
         { uid: auth!.account.id },
       )
       setProjects(data.project)
+      // 客户认领列表（客户账号由后台统一开通，顾问在此自行认领）
+      const cd = await gql<{ account: Account[] }>(
+        `query {
+          account(where: { account_type: { _eq: "customer" } }, order_by: { id: asc }) {
+            id username nickname status consultant_id
+          }
+        }`,
+      )
+      setCustomers(cd.account.filter((a) => a.username))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -130,6 +142,25 @@ export default function ClientDashboard() {
   const openProject = (id: number) => {
     markProjectViewed(id)
     navigate(`/client/project/${id}`)
+  }
+
+  // 认领客户：把客户账号的 consultant_id 设为自己；释放则置空
+  const claim = async (a: Account, unclaim = false) => {
+    setClaiming(String(a.id))
+    try {
+      await gql(
+        `mutation($id: bigint!, $cid: bigint) {
+          update_account_by_pk(pk_columns: { id: $id }, _set: { consultant_id: $cid }) { id }
+        }`,
+        { id: a.id, cid: unclaim ? null : Number(auth!.account.id) },
+      )
+      toast.success(unclaim ? `已释放客户 ${accountDisplayName(a)}` : `已认领客户 ${accountDisplayName(a)}，其遇到卡点时会自动匹配给你`)
+      load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '操作失败')
+    } finally {
+      setClaiming(null)
+    }
   }
 
   const onCreate = async (e: FormEvent) => {
@@ -191,6 +222,67 @@ export default function ClientDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 客户认领：顾问自行认领客户，客户遇卡点自动匹配给认领顾问 */}
+      {(customers.length > 0 || !loading) && (() => {
+        const myId = String(auth!.account.id)
+        const mine = customers.filter((c) => String(c.consultant_id ?? '') === myId)
+        const pool = customers.filter((c) => !c.consultant_id)
+        if (customers.length === 0) return null
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <UserCheck className="h-4 w-4" /> 客户认领
+                <span className="text-xs font-normal text-slate-400">我认领 {mine.length} 位 · 待认领 {pool.length} 位</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {mine.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-slate-500">我的客户</p>
+                  <div className="flex flex-wrap gap-2">
+                    {mine.map((c) => (
+                      <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs text-green-700">
+                        {accountDisplayName(c)}
+                        <button
+                          type="button"
+                          title="释放该客户"
+                          className="text-green-400 hover:text-red-500"
+                          disabled={claiming === String(c.id)}
+                          onClick={() => claim(c, true)}
+                        >
+                          <UserX className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pool.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-slate-500">待认领</p>
+                  <div className="flex flex-wrap gap-2">
+                    {pool.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100"
+                        disabled={claiming === String(c.id)}
+                        title="点击认领该客户"
+                        onClick={() => claim(c)}
+                      >
+                        {claiming === String(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                        {accountDisplayName(c)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-900">我的项目</h2>

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { gql, logOperation, createActionFlowTask, ANALYZE_FLOW_ID, AUDIO_FILL_FLOW_ID, FEEDBACK_TRANSCRIBE_FLOW_ID, COMM_FEEDBACK_FLOW_ID } from '@/lib/graphql'
 import { buildReportDocument, downloadWord, downloadPdf } from '@/lib/exportReport'
 import { uploadFile } from '@/lib/upload'
-import { useAuth } from '@/lib/auth'
+import { useAuth, homeFor } from '@/lib/auth'
 import { formatTime, AUDIO_STATUS_LABEL } from '@/lib/labels'
 import { projectDisplayName, type Analysis, type AudioRecord, type CommFeedback, type Project, type Submission } from '@/lib/types'
 import { markProjectViewed, clientDisplayStatus } from '@/lib/projectMeta'
@@ -124,7 +124,7 @@ export default function ProjectDetail() {
   return (
     <div className="space-y-6">
       <div className="no-print flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/client')}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(homeFor(auth!.account.account_type))}>
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
         <Button variant="ghost" size="sm" onClick={refresh} title="刷新">

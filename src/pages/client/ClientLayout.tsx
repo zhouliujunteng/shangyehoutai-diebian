@@ -16,7 +16,7 @@ export default function ClientLayout() {
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Building2 className="h-5 w-5" />
           <button className="font-semibold" onClick={() => navigate('/client')}>
-            项目后台 · 客户中心
+            项目后台 · 顾问工作台
           </button>
           <span className="text-xs text-slate-500">{APP_VERSION}</span>
           <div className="ml-auto flex items-center gap-3">

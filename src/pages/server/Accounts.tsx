@@ -30,7 +30,7 @@ export default function Accounts() {
   // 新建表单
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [type, setType] = useState<'client' | 'reviewer'>('client')
+  const [type, setType] = useState<'client' | 'customer' | 'reviewer'>('customer')
   const [level, setLevel] = useState('3')
   const [quota, setQuota] = useState('1')
   const [creating, setCreating] = useState(false)
@@ -134,7 +134,7 @@ export default function Accounts() {
           set: {
             account_type: type,
             reviewer_level: type === 'reviewer' ? Number(level) : null,
-            project_quota: type === 'client' ? Number(quota) || 0 : 0,
+            project_quota: type === 'reviewer' ? 0 : Number(quota) || 0,
             status: 'active',
           },
         },
@@ -147,7 +147,7 @@ export default function Accounts() {
       setDialogOpen(false)
       setUsername('')
       setPassword('')
-      setType('client')
+      setType('customer')
       setLevel('3')
       setQuota('1')
       load()
@@ -280,7 +280,7 @@ export default function Accounts() {
               )}
             </div>
           )}
-          {a.account_type === 'client' && (
+          {(a.account_type === 'client' || a.account_type === 'customer') && (
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-slate-500">项目配额</span>
               <span>{a.project_quota || '不限'}</span>
@@ -338,7 +338,8 @@ export default function Accounts() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部类型</SelectItem>
-              <SelectItem value="client">客户</SelectItem>
+              <SelectItem value="customer">客户</SelectItem>
+              <SelectItem value="client">顾问</SelectItem>
               <SelectItem value="reviewer">审核员</SelectItem>
               <SelectItem value="super_admin">超级管理员</SelectItem>
             </SelectContent>
@@ -533,12 +534,13 @@ export default function Accounts() {
             </div>
             <div className="space-y-2">
               <Label>账号类型</Label>
-              <Select value={type} onValueChange={(v) => setType(v as 'client' | 'reviewer')}>
+              <Select value={type} onValueChange={(v) => setType(v as 'client' | 'customer' | 'reviewer')}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="client">客户（客户服务账号）</SelectItem>
+                  <SelectItem value="customer">客户（企业主本人，登录后自助建企业）</SelectItem>
+                  <SelectItem value="client">顾问（认领并服务客户）</SelectItem>
                   <SelectItem value="reviewer">审核员</SelectItem>
                 </SelectContent>
               </Select>
@@ -558,11 +560,13 @@ export default function Accounts() {
                 </Select>
               </div>
             )}
-            {type === 'client' && (
+            {(type === 'client' || type === 'customer') && (
               <div className="space-y-2">
                 <Label>项目配额</Label>
                 <Input type="number" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} />
-                <p className="text-xs text-slate-400">该客户可创建的项目数量上限，0 表示不限制</p>
+                <p className="text-xs text-slate-400">
+                  {type === 'customer' ? '该客户可创建的企业数量上限，0 表示不限制' : '该顾问可创建的项目数量上限，0 表示不限制'}
+                </p>
               </div>
             )}
             <DialogFooter>
