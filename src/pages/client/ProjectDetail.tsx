@@ -12,6 +12,7 @@ import { ClientProjectStatusBadge as ProjectStatusBadge } from '@/components/Sta
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
+import PlanPointsCard from '@/components/PlanPoints'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -141,6 +142,15 @@ export default function ProjectDetail() {
           records={project.audio_records}
           username={auth!.account.username}
           onChanged={refresh}
+        />
+      </div>
+
+      <div className="no-print">
+        <PlanPointsCard
+          projectId={project.id}
+          mode={auth!.account.account_type === 'customer' ? 'customer' : 'consultant'}
+          username={auth!.account.username}
+          analysisId={publishedAnalysis?.id ?? null}
         />
       </div>
 

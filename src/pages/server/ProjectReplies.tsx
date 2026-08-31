@@ -10,6 +10,7 @@ import { ReviewStatusBadge, ProjectStatusBadge, FeedbackSubmissionStatusBadge, F
 import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
+import PlanPointsCard from '@/components/PlanPoints'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -439,6 +440,14 @@ export default function ProjectReplies() {
           )}
         </CardContent>
       </Card>
+
+      {/* 方案小点：AI 拆点 → 老师确认 → 顾问发布 → 客户逐项推进 */}
+      <PlanPointsCard
+        projectId={project.id}
+        mode="server"
+        username={myName}
+        analysisId={latestAnalysis && latestAnalysis.status === 'published' ? latestAnalysis.id : null}
+      />
 
       {/* 音频记录（面谈音频 + 转写文本 + 处理结果，可在线播放） */}
       {project.audio_records.length > 0 && (

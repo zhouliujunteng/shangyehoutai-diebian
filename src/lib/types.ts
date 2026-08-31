@@ -153,6 +153,26 @@ export interface OperationLog {
   created_at?: string
 }
 
+/* ---------- 方案小点（拆点 + 任务式推进） ---------- */
+
+/** draft=AI草稿(老师可见) / confirmed=老师已确认(顾问可发布) / published=已发布到客户 / done=客户已完成并写总结 */
+export type PlanPointStatus = 'draft' | 'confirmed' | 'published' | 'done'
+
+export interface PlanPoint {
+  id: number
+  analysis_id: number | null
+  seq: number
+  title: string | null
+  content: string | null
+  status: PlanPointStatus
+  customer_summary?: string | null
+  published_by?: string | null
+  published_at?: string | null
+  finished_at?: string | null
+  project_id: number
+  created_at?: string
+}
+
 /* ---------- 沟通反馈（文字/录音双通道） ---------- */
 
 export type CommFeedbackKind = 'text' | 'audio'
