@@ -153,6 +153,20 @@ export interface OperationLog {
   created_at?: string
 }
 
+/* ---------- 交付记录（现场交付确认书 + 见证留档） ---------- */
+
+export interface Delivery {
+  id: number
+  confirm_file?: { url: string; name?: string | null } | null
+  witness_video?: string | null
+  visit_date?: string | null
+  participants?: string | null
+  note?: string | null
+  delivered_by?: string | null
+  project_id: number
+  created_at?: string
+}
+
 /* ---------- 卡点记录（客户报卡点 → 自动匹配认领顾问） ---------- */
 
 /** open=待顾问处理 / resolved=已解决 */

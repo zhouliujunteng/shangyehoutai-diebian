@@ -12,6 +12,7 @@ import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import PlanPointsCard from '@/components/PlanPoints'
 import PlanQaCard from '@/components/PlanQa'
+import DeliveryCard from '@/components/Delivery'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -452,6 +453,9 @@ export default function ProjectReplies() {
 
       {/* 方案问答：客户提问 → AI 起草 → 老师审核发出 */}
       <PlanQaCard projectId={project.id} mode="server" username={myName} />
+
+      {/* 交付记录：现场服务留档（服务端只读） */}
+      <DeliveryCard projectId={project.id} mode="server" username={myName} />
 
       {/* 音频记录（面谈音频 + 转写文本 + 处理结果，可在线播放） */}
       {project.audio_records.length > 0 && (
