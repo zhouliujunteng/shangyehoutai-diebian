@@ -153,6 +153,25 @@ export interface OperationLog {
   created_at?: string
 }
 
+/* ---------- 方案问答（客户提问 → AI 起草 → 老师审核发出） ---------- */
+
+/** submitted=已提交待起草 / drafting=AI起草中 / pending=待老师审核 / published=已发出 / failed=起草失败 */
+export type PlanQaStatus = 'submitted' | 'drafting' | 'pending' | 'published' | 'failed'
+
+export interface PlanQa {
+  id: number
+  question: string | null
+  draft?: string | null
+  answer?: string | null
+  status: PlanQaStatus
+  asked_by?: string | null
+  answered_by?: string | null
+  error_message?: string | null
+  answered_at?: string | null
+  project_id: number
+  created_at?: string
+}
+
 /* ---------- 方案小点（拆点 + 任务式推进） ---------- */
 
 /** draft=AI草稿(老师可见) / confirmed=老师已确认(顾问可发布) / published=已发布到客户 / done=客户已完成并写总结 */

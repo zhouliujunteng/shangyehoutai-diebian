@@ -13,6 +13,7 @@ import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import PlanPointsCard from '@/components/PlanPoints'
+import PlanQaCard from '@/components/PlanQa'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -151,6 +152,14 @@ export default function ProjectDetail() {
           mode={auth!.account.account_type === 'customer' ? 'customer' : 'consultant'}
           username={auth!.account.username}
           analysisId={publishedAnalysis?.id ?? null}
+        />
+      </div>
+
+      <div className="no-print">
+        <PlanQaCard
+          projectId={project.id}
+          mode={auth!.account.account_type === 'customer' ? 'customer' : 'consultant'}
+          username={auth!.account.username}
         />
       </div>
 

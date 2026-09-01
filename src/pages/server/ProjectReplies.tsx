@@ -11,6 +11,7 @@ import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import PlanPointsCard from '@/components/PlanPoints'
+import PlanQaCard from '@/components/PlanQa'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -448,6 +449,9 @@ export default function ProjectReplies() {
         username={myName}
         analysisId={latestAnalysis && latestAnalysis.status === 'published' ? latestAnalysis.id : null}
       />
+
+      {/* 方案问答：客户提问 → AI 起草 → 老师审核发出 */}
+      <PlanQaCard projectId={project.id} mode="server" username={myName} />
 
       {/* 音频记录（面谈音频 + 转写文本 + 处理结果，可在线播放） */}
       {project.audio_records.length > 0 && (

@@ -29,6 +29,9 @@ export const COMM_FEEDBACK_FLOW_ID = '14dc27ae-ecd0-4bdb-aa0c-666072dd825a'
 /** 「方案拆点」ActionFlow ID（异步执行：已发布方案 → AI 拆成 1-2 周可执行的小点 → 写入 plan_point 草稿，老师确认、顾问发布后客户可见） */
 export const PLAN_SPLIT_FLOW_ID = 'eb86a9fa-586b-45fe-a510-dcf52c04c05e'
 
+/** 「问答起草」ActionFlow ID（异步执行：客户提问 → 汇总企业信息+方案+当前小点 → AI 起草回答 → 写回 plan_qa 草稿，老师审核后发出） */
+export const QA_DRAFT_FLOW_ID = '6fd4c752-0a79-41b1-a0d6-85c45095bb29'
+
 /** 同步调用行为流（按最新版本），失败抛错 */
 export async function invokeActionFlow(flowId: string, args: Record<string, unknown>): Promise<unknown> {
   const data = await gql<{ fz_invoke_action_flow_default_by_latest_version: unknown }>(
