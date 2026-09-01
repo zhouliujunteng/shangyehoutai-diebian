@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 import { gql, logOperation } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { formatTime, CLIENT_PROJECT_STATUS_LABEL } from '@/lib/labels'
-import { projectDisplayName, accountDisplayName, type Account } from '@/lib/types'
+import { projectDisplayName, accountDisplayName, type Account, type Blockage } from '@/lib/types'
 import {
   clientDisplayStatus,
   hasAudioSourced,
@@ -22,8 +22,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic, UserCheck, UserX } from 'lucide-react'
+import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic, UserCheck, UserX, LifeBuoy } from 'lucide-react'
 
 /** 分组排序：先按状态分类（流程顺序），同状态内按更新时间倒序（先更新的在前面） */
 const STATUS_GROUP_ORDER = [
@@ -62,6 +63,11 @@ export default function ClientDashboard() {
   // 客户认领：全部客户账号（account_type=customer），consultant_id 标识被谁认领
   const [customers, setCustomers] = useState<Account[]>([])
   const [claiming, setClaiming] = useState<string | null>(null)
+  // 卡点待办：认领客户报上来的卡点，自动匹配到我
+  const [blockages, setBlockages] = useState<Blockage[]>([])
+  const [resolving, setResolving] = useState<number | null>(null)
+  const [resolveNote, setResolveNote] = useState('')
+  const [resolveTarget, setResolveTarget] = useState<Blockage | null>(null)
 
   const quota = auth?.account.project_quota ?? 0
   const used = projects.length
@@ -127,6 +133,16 @@ export default function ClientDashboard() {
         }`,
       )
       setCustomers(cd.account.filter((a) => a.username))
+      // 卡点待办：匹配给我的未处理卡点
+      const bd = await gql<{ blockage: Blockage[] }>(
+        `query($cid: bigint!) {
+          blockage(where: { consultant_id: { _eq: $cid }, status: { _eq: "open" } }, order_by: { id: desc }) {
+            id description customer_name plan_point_id created_at project { id name }
+          }
+        }`,
+        { cid: Number(auth!.account.id) },
+      )
+      setBlockages(bd.blockage)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -142,6 +158,36 @@ export default function ClientDashboard() {
   const openProject = (id: number) => {
     markProjectViewed(id)
     navigate(`/client/project/${id}`)
+  }
+
+  // 处理卡点：标记已解决 + 备注
+  const resolveBlockage = async () => {
+    if (!resolveTarget) return
+    setResolving(resolveTarget.id)
+    try {
+      await gql(
+        `mutation($id: bigint!, $by: String!, $note: String, $at: timestamptz!) {
+          update_blockage_by_pk(pk_columns: { id: $id }, _set: { status: "resolved", handled_by: $by, handle_note: $note, handled_at: $at }) { id }
+        }`,
+        { id: resolveTarget.id, by: auth!.account.username, note: resolveNote.trim() || null, at: new Date().toISOString() },
+      )
+      await logOperation({
+        projectId: resolveTarget.project?.id ?? 0,
+        operator: auth!.account.username,
+        action: '处理客户卡点',
+        targetType: 'blockage',
+        targetId: resolveTarget.id,
+        detail: { customer: resolveTarget.customer_name, note: resolveNote.trim() || null },
+      })
+      toast.success('已标记解决')
+      setResolveTarget(null)
+      setResolveNote('')
+      load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '操作失败')
+    } finally {
+      setResolving(null)
+    }
   }
 
   // 认领客户：把客户账号的 consultant_id 设为自己；释放则置空
@@ -284,9 +330,63 @@ export default function ClientDashboard() {
         )
       })()}
 
+      {/* 卡点待办：认领客户报的卡点自动匹配到这里 */}
+      {blockages.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base text-amber-800">
+              <LifeBuoy className="h-4 w-4" /> 卡点待办（{blockages.length}）
+              <span className="text-xs font-normal text-amber-500">客户推进中卡住了，尽快对接</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {blockages.map((b) => (
+              <div key={b.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-white px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800">
+                    {b.customer_name ?? '客户'} · {b.project?.name ?? '未命名项目'}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {b.description?.trim() || '（客户未填写具体卡点）'}
+                    <span className="ml-2 text-slate-400">{formatTime(b.created_at)}</span>
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="h-7" onClick={() => b.project && openProject(b.project.id)}>
+                  看项目
+                </Button>
+                <Button size="sm" className="h-7 bg-slate-900 hover:bg-slate-800" onClick={() => { setResolveTarget(b); setResolveNote('') }}>
+                  标记解决
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 处理卡点对话框 */}
+      <Dialog open={!!resolveTarget} onOpenChange={(o) => !o && setResolveTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>标记卡点已解决</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-slate-600">
+              {resolveTarget?.customer_name} · {resolveTarget?.project?.name}：{resolveTarget?.description?.trim() || '（未填写具体卡点）'}
+            </p>
+            <Textarea rows={3} value={resolveNote} onChange={(e) => setResolveNote(e.target.value)} placeholder="处理备注（选填）：怎么对接的、定了什么动作…" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResolveTarget(null)}>取消</Button>
+            <Button className="bg-slate-900 hover:bg-slate-800" disabled={resolving !== null} onClick={resolveBlockage}>
+              {resolving !== null && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              确认已解决
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">我的项目</h2>
-        <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-slate-900">我的项目</h2>        <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={load} title="刷新">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>

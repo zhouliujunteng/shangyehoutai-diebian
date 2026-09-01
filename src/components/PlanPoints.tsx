@@ -31,12 +31,17 @@ export default function PlanPointsCard({
   mode,
   username,
   analysisId,
+  customerId,
+  consultantId,
 }: {
   projectId: number
   mode: 'server' | 'consultant' | 'customer'
   username: string
   /** server 模式：当前方案（已发布报告）ID，用于触发 AI 拆点 */
   analysisId?: number | null
+  /** customer 模式：客户账号 id 与认领顾问 id（报卡点用） */
+  customerId?: number | string | null
+  consultantId?: number | null
 }) {
   const [points, setPoints] = useState<PlanPoint[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,6 +51,9 @@ export default function PlanPointsCard({
   const [draftTitle, setDraftTitle] = useState('')
   const [draftContent, setDraftContent] = useState('')
   const [summary, setSummary] = useState('')
+  const [stuckOpen, setStuckOpen] = useState(false)
+  const [stuckDesc, setStuckDesc] = useState('')
+  const [stuckSending, setStuckSending] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async (silent = false) => {
@@ -203,6 +211,42 @@ export default function PlanPointsCard({
     }
   }
 
+  // 客户：报卡点，自动匹配认领顾问（无认领顾问时也能提交，由平台兜底分配）
+  const reportStuck = async (p: PlanPoint) => {
+    setStuckSending(true)
+    try {
+      await gql(
+        `mutation($obj: blockage_insert_input!) { insert_blockage_one(object: $obj) { id } }`,
+        {
+          obj: {
+            project_id: projectId,
+            plan_point_id: p.id,
+            description: stuckDesc.trim() || null,
+            status: 'open',
+            consultant_id: consultantId ?? null,
+            customer_id: customerId != null ? Number(customerId) : null,
+            customer_name: username,
+          },
+        },
+      )
+      await logOperation({
+        projectId,
+        operator: username,
+        action: '报卡点（自动匹配顾问）',
+        targetType: 'plan_point',
+        targetId: p.id,
+        detail: { title: p.title, description: stuckDesc.trim() || null, consultant_id: consultantId ?? null },
+      })
+      toast.success('已告诉你的顾问，TA 会尽快跟你对接', { duration: 6000 })
+      setStuckOpen(false)
+      setStuckDesc('')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '提交失败，请重试')
+    } finally {
+      setStuckSending(false)
+    }
+  }
+
   const statusBadge = (st: PlanPointStatus) => {
     const map: Record<PlanPointStatus, { label: string; cls: string }> = {
       draft: { label: '草稿待确认', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
@@ -262,10 +306,42 @@ export default function PlanPointsCard({
                         <div className="space-y-2 border-t border-blue-200 pt-3">
                           <p className="text-xs font-medium text-slate-500">做完了？写下你的总结（做了什么、结果如何、认识到了什么）：</p>
                           <Textarea rows={4} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="一点成绩一点总结，总结的过程就是你自己的成长…" />
-                          <Button size="sm" className="bg-slate-900 hover:bg-slate-800" disabled={acting === p.id} onClick={() => finish(p)}>
-                            {acting === p.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
-                            完成并提交总结
-                          </Button>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <Button size="sm" className="bg-slate-900 hover:bg-slate-800" disabled={acting === p.id} onClick={() => finish(p)}>
+                              {acting === p.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+                              完成并提交总结
+                            </Button>
+                            <button
+                              type="button"
+                              className="text-xs text-slate-400 underline decoration-dotted hover:text-amber-600"
+                              onClick={() => setStuckOpen(true)}
+                            >
+                              卡住了？找顾问帮忙
+                            </button>
+                          </div>
+                          <AlertDialog open={stuckOpen} onOpenChange={setStuckOpen}>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>告诉顾问你卡在哪了</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  提交后系统会自动对接给你的认领顾问，TA 会尽快联系你。可以简单写一句卡住的地方（也可不填）。
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <Textarea
+                                rows={3}
+                                value={stuckDesc}
+                                onChange={(e) => setStuckDesc(e.target.value)}
+                                placeholder="例如：店长不愿意开早会，说了两次都没推下去…"
+                              />
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>取消</AlertDialogCancel>
+                                <AlertDialogAction className="bg-slate-900 hover:bg-slate-800" disabled={stuckSending} onClick={() => reportStuck(p)}>
+                                  {stuckSending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                                  提交给顾问
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </div>
                     )}

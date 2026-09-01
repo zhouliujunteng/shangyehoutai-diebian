@@ -153,6 +153,27 @@ export interface OperationLog {
   created_at?: string
 }
 
+/* ---------- 卡点记录（客户报卡点 → 自动匹配认领顾问） ---------- */
+
+/** open=待顾问处理 / resolved=已解决 */
+export type BlockageStatus = 'open' | 'resolved'
+
+export interface Blockage {
+  id: number
+  plan_point_id?: number | null
+  description?: string | null
+  status: BlockageStatus
+  consultant_id?: number | null
+  customer_id?: number | null
+  customer_name?: string | null
+  handled_by?: string | null
+  handle_note?: string | null
+  handled_at?: string | null
+  project_id: number
+  created_at?: string
+  project?: { id: number; name: string } | null
+}
+
 /* ---------- 方案问答（客户提问 → AI 起草 → 老师审核发出） ---------- */
 
 /** submitted=已提交待起草 / drafting=AI起草中 / pending=待老师审核 / published=已发出 / failed=起草失败 */

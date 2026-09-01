@@ -152,6 +152,8 @@ export default function ProjectDetail() {
           mode={auth!.account.account_type === 'customer' ? 'customer' : 'consultant'}
           username={auth!.account.username}
           analysisId={publishedAnalysis?.id ?? null}
+          customerId={auth!.account.id}
+          consultantId={auth!.account.consultant_id ?? null}
         />
       </div>
 
