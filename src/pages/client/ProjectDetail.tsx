@@ -14,6 +14,7 @@ import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import PlanPointsCard from '@/components/PlanPoints'
 import DeliveryCard from '@/components/Delivery'
+import SummaryCard from '@/components/SummaryCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -32,6 +33,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DETAILED_SECTIONS } from '@/lib/forms'
 import { toast } from 'sonner'
 import {
@@ -169,6 +171,14 @@ export default function ProjectDetail() {
       </div>
 
       <div className="no-print">
+        <SummaryCard
+          projectId={project.id}
+          mode={auth!.account.account_type === 'customer' ? 'customer' : 'consultant'}
+          username={auth!.account.username}
+        />
+      </div>
+
+      <div className="no-print">
         <SubmissionsCard
           submissions={project.submissions}
           project={project}
@@ -288,6 +298,62 @@ function SubmissionsCard({
   const latestDetailed = detailed[0] ?? null
   // 提交梳理前（信息整理阶段）顾问可修改最新详细版答案；客户只读
   const canEdit = !readOnly && ['created', 'collecting', 'pending_confirm', 'supplementing'].includes(project.status)
+  // 顾问：补充企业信息 / 打回重梳
+  const [suppOpen, setSuppOpen] = useState(false)
+  const [suppText, setSuppText] = useState('')
+  const [suppSaving, setSuppSaving] = useState(false)
+  const [reanaOpen, setReanaOpen] = useState(false)
+  const [reanaLoading, setReanaLoading] = useState(false)
+
+  // 顾问补充企业信息：以「【顾问补充 N】」键追加到最新详细版答案，客户可见、重梳时随材料进入
+  const addSupplement = async () => {
+    const v = suppText.trim()
+    if (!v || !latestDetailed) return
+    setSuppSaving(true)
+    try {
+      const answers = { ...(latestDetailed.answers ?? {}) }
+      let n = 1
+      while (answers[`【顾问补充 ${n}】`]) n++
+      answers[`【顾问补充 ${n}】`] = v
+      await gql(
+        `mutation($id: bigint!, $a: jsonb) {
+          update_submission_by_pk(pk_columns: { id: $id }, _set: { answers: $a }) { id }
+        }`,
+        { id: latestDetailed.id, a: answers },
+      )
+      await logOperation({ projectId: project.id, operator: username, action: '顾问补充企业信息', targetType: 'submission', targetId: latestDetailed.id, detail: { 内容: v.slice(0, 100) } })
+      toast.success('已补充到企业信息下方')
+      setSuppOpen(false)
+      setSuppText('')
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSuppSaving(false)
+    }
+  }
+
+  // 打回重梳：项目回「梳理中」并触发项目梳理流程（生成新版本进审核链，旧版本保留）
+  const reanalyze = async () => {
+    setReanaLoading(true)
+    try {
+      await gql(
+        `mutation($pid: bigint!, $fid: String!, $args: Json!) {
+          update_project_by_pk(pk_columns: { id: $pid }, _set: { status: "analyzing" }) { id }
+          fz_create_action_flow_task(actionFlowId: $fid, args: $args)
+        }`,
+        { pid: project.id, fid: ANALYZE_FLOW_ID, args: { 项目ID: project.id } },
+      )
+      await logOperation({ projectId: project.id, operator: username, action: '打回服务端重新梳理（信息变化大）', targetType: 'project', targetId: project.id })
+      toast.success('已打回服务端，AI 会结合最新信息重新梳理并进入审核', { duration: 6000 })
+      setReanaOpen(false)
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '操作失败')
+    } finally {
+      setReanaLoading(false)
+    }
+  }
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
@@ -341,13 +407,25 @@ function SubmissionsCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           提交信息（{submissions.length}）
-          {canEdit && latestDetailed && !editing && (
-            <Button variant="outline" size="sm" className="ml-auto h-8" onClick={startEdit}>
-              <Pencil className="mr-1 h-3.5 w-3.5" /> 修改企业信息
-            </Button>
-          )}
+          <span className="ml-auto flex items-center gap-2">
+            {canEdit && latestDetailed && !editing && (
+              <Button variant="outline" size="sm" className="h-8" onClick={startEdit}>
+                <Pencil className="mr-1 h-3.5 w-3.5" /> 修改企业信息
+              </Button>
+            )}
+            {!readOnly && latestDetailed && !editing && (
+              <Button variant="outline" size="sm" className="h-8" onClick={() => { setSuppText(''); setSuppOpen(true) }}>
+                补充企业信息
+              </Button>
+            )}
+            {!readOnly && project.status === 'published' && !editing && (
+              <Button variant="outline" size="sm" className="h-8 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => setReanaOpen(true)}>
+                打回重新梳理
+              </Button>
+            )}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -400,6 +478,43 @@ function SubmissionsCard({
             </TabsContent>
           </Tabs>
         )}
+
+        {/* 顾问：补充企业信息 */}
+        <Dialog open={suppOpen} onOpenChange={setSuppOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>补充企业信息</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-slate-400">以文字形式追加到企业信息下方，可补充多条；打回重梳时会随材料一起交给 AI。</p>
+            <Textarea rows={5} value={suppText} onChange={(e) => setSuppText(e.target.value)} placeholder="例如：最近新增了两家社区门店，团队扩到 12 人，老板想先做会员体系…" />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSuppOpen(false)}>取消</Button>
+              <Button className="bg-slate-900 hover:bg-slate-800" disabled={suppSaving} onClick={addSupplement}>
+                {suppSaving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                补充到企业信息
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 顾问：打回重梳 */}
+        <AlertDialog open={reanaOpen} onOpenChange={setReanaOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>打回服务端重新梳理？</AlertDialogTitle>
+              <AlertDialogDescription>
+                适用于补充信息后，企业情况与之前描述差别较大的情况。打回后 AI 会结合最新信息（含你的补充）重新梳理并重新走审核流程，旧版本方案保留可回看。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogAction className="bg-slate-900 hover:bg-slate-800" disabled={reanaLoading} onClick={reanalyze}>
+                {reanaLoading && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                确认打回重梳
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   )

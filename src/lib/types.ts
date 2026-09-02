@@ -171,6 +171,16 @@ export interface Delivery {
   created_at?: string
 }
 
+/* ---------- 顾问总结（顾问给客户写，独立于节点，可多条） ---------- */
+
+export interface ConsultantSummary {
+  id: number
+  content: string | null
+  author?: string | null
+  project_id: number
+  created_at?: string
+}
+
 /* ---------- 卡点记录（客户报卡点 → 自动匹配认领顾问） ---------- */
 
 /** open=待顾问处理 / resolved=已解决 */
