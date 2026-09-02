@@ -9,6 +9,8 @@ import ClientDashboard from '@/pages/client/ClientDashboard'
 import ProjectDetail from '@/pages/client/ProjectDetail'
 import CustomerLayout from '@/pages/customer/CustomerLayout'
 import CustomerDashboard from '@/pages/customer/CustomerDashboard'
+import OrgLayout from '@/pages/org/OrgLayout'
+import OrgDashboard from '@/pages/org/OrgDashboard'
 import ServerLayout from '@/pages/server/ServerLayout'
 import ProjectsOverview from '@/pages/server/ProjectsOverview'
 import ReviewWorkbench from '@/pages/server/ReviewWorkbench'
@@ -47,6 +49,17 @@ export default function App() {
         >
           <Route index element={<CustomerDashboard />} />
           <Route path="project/:id" element={<ProjectDetail />} />
+          <Route path="settings" element={<AccountSettings />} />
+        </Route>
+        <Route
+          path="/org"
+          element={
+            <RequireAuth roles={['org_admin']}>
+              <OrgLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<OrgDashboard />} />
           <Route path="settings" element={<AccountSettings />} />
         </Route>
         <Route

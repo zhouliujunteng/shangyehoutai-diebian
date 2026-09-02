@@ -30,7 +30,7 @@ export default function Accounts() {
   // 新建表单
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [type, setType] = useState<'client' | 'customer' | 'reviewer'>('customer')
+  const [type, setType] = useState<'client' | 'customer' | 'reviewer' | 'org_admin'>('customer')
   const [level, setLevel] = useState('3')
   const [quota, setQuota] = useState('1')
   const [creating, setCreating] = useState(false)
@@ -280,9 +280,9 @@ export default function Accounts() {
               )}
             </div>
           )}
-          {(a.account_type === 'client' || a.account_type === 'customer') && (
+          {(a.account_type === 'client' || a.account_type === 'customer' || a.account_type === 'org_admin') && (
             <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-slate-500">项目配额</span>
+              <span className="text-slate-500">{a.account_type === 'org_admin' ? '总配额池' : '项目配额'}</span>
               <span>{a.project_quota || '不限'}</span>
             </div>
           )}
@@ -340,6 +340,7 @@ export default function Accounts() {
               <SelectItem value="all">全部类型</SelectItem>
               <SelectItem value="customer">客户</SelectItem>
               <SelectItem value="client">顾问</SelectItem>
+              <SelectItem value="org_admin">机构管理</SelectItem>
               <SelectItem value="reviewer">审核员</SelectItem>
               <SelectItem value="super_admin">超级管理员</SelectItem>
             </SelectContent>
@@ -413,7 +414,7 @@ export default function Accounts() {
                           )}
                         </TableCell>
                         <TableCell>
-                          {a.account_type !== 'client' ? (
+                          {a.account_type !== 'client' && a.account_type !== 'customer' && a.account_type !== 'org_admin' ? (
                             '—'
                           ) : isSuperAdmin && editingQuotaId === String(a.id) ? (
                             <span className="inline-flex items-center gap-1.5">
@@ -534,13 +535,14 @@ export default function Accounts() {
             </div>
             <div className="space-y-2">
               <Label>账号类型</Label>
-              <Select value={type} onValueChange={(v) => setType(v as 'client' | 'customer' | 'reviewer')}>
+              <Select value={type} onValueChange={(v) => setType(v as 'client' | 'customer' | 'reviewer' | 'org_admin')}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="customer">客户（企业主本人，登录后自助建企业）</SelectItem>
                   <SelectItem value="client">顾问（认领并服务客户）</SelectItem>
+                  <SelectItem value="org_admin">机构管理（客户端总管理，可开客户/顾问账号）</SelectItem>
                   <SelectItem value="reviewer">审核员</SelectItem>
                 </SelectContent>
               </Select>
@@ -560,12 +562,16 @@ export default function Accounts() {
                 </Select>
               </div>
             )}
-            {(type === 'client' || type === 'customer') && (
+            {(type === 'client' || type === 'customer' || type === 'org_admin') && (
               <div className="space-y-2">
-                <Label>项目配额</Label>
+                <Label>{type === 'org_admin' ? '机构总配额池' : '项目配额'}</Label>
                 <Input type="number" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} />
                 <p className="text-xs text-slate-400">
-                  {type === 'customer' ? '该客户可创建的企业数量上限，0 表示不限制' : '该顾问可创建的项目数量上限，0 表示不限制'}
+                  {type === 'org_admin'
+                    ? '该机构可分配给旗下客户/顾问的配额总量，0 表示不限制'
+                    : type === 'customer'
+                      ? '该客户可创建的企业数量上限，0 表示不限制'
+                      : '该顾问可创建的项目数量上限，0 表示不限制'}
                 </p>
               </div>
             )}

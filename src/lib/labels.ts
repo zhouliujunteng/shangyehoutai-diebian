@@ -62,6 +62,7 @@ export const ACCOUNT_TYPE_LABEL: Record<string, string> = {
   super_admin: '超级管理员',
   client: '顾问',
   customer: '客户',
+  org_admin: '机构管理',
   reviewer: '审核员',
 }
 

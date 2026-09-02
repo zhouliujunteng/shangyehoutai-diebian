@@ -1,5 +1,5 @@
-/** client=顾问（原客户服务账号，沿用历史值）；customer=客户（企业主本人） */
-export type AccountType = 'super_admin' | 'client' | 'reviewer' | 'customer'
+/** client=顾问（原客户服务账号，沿用历史值）；customer=客户（企业主本人）；org_admin=机构管理（客户端总管理，如盛世蝶变） */
+export type AccountType = 'super_admin' | 'client' | 'reviewer' | 'customer' | 'org_admin'
 export type AccountStatus = 'active' | 'disabled'
 
 export interface Account {
@@ -15,6 +15,10 @@ export interface Account {
   status: AccountStatus
   /** 认领该客户（customer）的顾问账号 id；未认领为空 */
   consultant_id?: number | null
+  /** 所属机构管理账号 id（客户/顾问账号挂在机构下；机构管理账号自身为空） */
+  org_id?: number | null
+  /** 机构管理账号的默认顾问：新建客户账号自动认领给他 */
+  default_consultant_id?: number | null
 }
 
 /** 账号展示名：优先昵称，未设置回退用户名 */
