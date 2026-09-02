@@ -70,7 +70,8 @@ export default function ClientDashboard() {
   const [resolveTarget, setResolveTarget] = useState<Blockage | null>(null)
 
   const quota = auth?.account.project_quota ?? 0
-  const used = projects.length
+  // 配额只算顾问自己创建的项目，认领客户名下的项目不占顾问名额
+  const used = projects.filter((p) => String(p.owner_id) === String(auth?.account.id)).length
   const quotaFull = quota > 0 && used >= quota
 
   const switchViewMode = (mode: ViewMode) => {
@@ -102,10 +103,27 @@ export default function ClientDashboard() {
     setLoading(true)
     try {
       await refreshAccount()
+      // 客户认领列表（客户账号由后台统一开通，顾问在此自行认领）
+      const cd = await gql<{ account: Account[] }>(
+        `query {
+          account(where: { account_type: { _eq: "customer" } }, order_by: { id: asc }) {
+            id username nickname status consultant_id
+          }
+        }`,
+      )
+      const allCustomers = cd.account.filter((a) => a.username)
+      setCustomers(allCustomers)
+      // 项目列表 = 我自己的项目 + 我认领的客户名下的项目
+      const myId = Number(auth!.account.id)
+      const myCustomerIds = allCustomers
+        .filter((c) => Number(c.consultant_id ?? 0) === myId)
+        .map((c) => Number(c.id))
       const data = await gql<{ project: ClientProjectMeta[] }>(
-        `query($uid: bigint!) {
-          project(where: { owner_id: { _eq: $uid } }, order_by: { id: desc }) {
+        `query($uids: [bigint!]!) {
+          project(where: { owner_id: { _in: $uids } }, order_by: { id: desc }) {
             id name remark status review_level current_analysis_id created_at
+            owner_id
+            owner { username }
             analyses(where: { status: { _eq: "published" } }, order_by: { id: desc }) {
               id status created_at
             }
@@ -121,18 +139,9 @@ export default function ClientDashboard() {
             }
           }
         }`,
-        { uid: auth!.account.id },
+        { uids: [myId, ...myCustomerIds] },
       )
       setProjects(data.project)
-      // 客户认领列表（客户账号由后台统一开通，顾问在此自行认领）
-      const cd = await gql<{ account: Account[] }>(
-        `query {
-          account(where: { account_type: { _eq: "customer" } }, order_by: { id: asc }) {
-            id username nickname status consultant_id
-          }
-        }`,
-      )
-      setCustomers(cd.account.filter((a) => a.username))
       // 卡点待办：匹配给我的未处理卡点
       const bd = await gql<{ blockage: Blockage[] }>(
         `query($cid: bigint!) {
@@ -473,7 +482,14 @@ export default function ClientDashboard() {
               {hasUnseenUpdate(p) && <UpdateDot />}
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="text-base leading-6">{projectDisplayName(p)}</CardTitle>
+                  <CardTitle className="text-base leading-6">
+                    {projectDisplayName(p)}
+                    {String(p.owner_id) !== String(auth?.account.id) && (
+                      <span className="ml-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-normal text-amber-700">
+                        客户 {p.owner?.username ?? ''}
+                      </span>
+                    )}
+                  </CardTitle>
                   <span className="flex shrink-0 items-center gap-1.5">
                     {hasAudioSourced(p) && (
                       <span
@@ -515,7 +531,14 @@ export default function ClientDashboard() {
             >
               {hasUnseenUpdate(p) && <UpdateDot />}
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium text-slate-800">{projectDisplayName(p)}</span>
+                <span className="block truncate text-sm font-medium text-slate-800">
+                  {projectDisplayName(p)}
+                  {String(p.owner_id) !== String(auth?.account.id) && (
+                    <span className="ml-1.5 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-700">
+                      客户 {p.owner?.username ?? ''}
+                    </span>
+                  )}
+                </span>
                 {p.remark && p.name.trim() && <span className="block truncate text-xs text-slate-400">备注：{p.remark}</span>}
               </span>
               <span className="flex items-center justify-end gap-1.5 sm:justify-self-start">
