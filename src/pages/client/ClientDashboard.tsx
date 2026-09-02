@@ -218,9 +218,14 @@ export default function ClientDashboard() {
     }
   }
 
+  // 新建项目归属：self=顾问自己名下；否则为认领客户账号 id（客户项目不占顾问配额）
+  const [ownerChoice, setOwnerChoice] = useState('self')
+
   const onCreate = async (e: FormEvent) => {
     e.preventDefault()
-    if (quotaFull) {
+    const ownerId = ownerChoice === 'self' ? Number(auth!.account.id) : Number(ownerChoice)
+    const forSelf = ownerChoice === 'self'
+    if (forSelf && quotaFull) {
       toast.error(`项目名额已用完（${used}/${quota}），如需更多名额请联系平台管理员`)
       return
     }
@@ -235,7 +240,7 @@ export default function ClientDashboard() {
             // 项目名称留空，面谈音频整理填表后自动回填（公司全称）
             name: '',
             remark: remark.trim() || null,
-            owner_id: auth!.account.id,
+            owner_id: ownerId,
             status: 'created',
             review_level: null,
           },
@@ -245,14 +250,15 @@ export default function ClientDashboard() {
       await logOperation({
         projectId: pid,
         operator: auth!.account.username,
-        action: '创建项目',
+        action: forSelf ? '创建项目' : '为客户创建项目',
         targetType: 'project',
         targetId: pid,
-        detail: { remark: remark.trim() || null },
+        detail: { remark: remark.trim() || null, owner_id: ownerId },
       })
-      toast.success('项目创建成功，请上传面谈音频以整理企业信息')
+      toast.success(forSelf ? '项目创建成功，请上传面谈音频以整理企业信息' : '已为客户创建项目，请上传面谈音频以整理企业信息')
       setDialogOpen(false)
       setRemark('')
+      setOwnerChoice('self')
       navigate(`/client/project/${pid}`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '创建失败')
@@ -567,6 +573,24 @@ export default function ClientDashboard() {
             <DialogTitle>新建项目</DialogTitle>
           </DialogHeader>
           <form onSubmit={onCreate} className="space-y-4">
+            <div className="space-y-2">
+              <Label>项目归属</Label>
+              <Select value={ownerChoice} onValueChange={setOwnerChoice}>
+                <SelectTrigger className="bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="self">我自己名下（占我的配额）</SelectItem>
+                  {customers
+                    .filter((c) => String(c.consultant_id ?? '') === String(auth?.account.id))
+                    .map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        客户：{accountDisplayName(c)}（占客户的配额）
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="premark">备注（选填）</Label>
               <Input

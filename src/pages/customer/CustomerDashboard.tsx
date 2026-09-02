@@ -1,22 +1,19 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { gql, logOperation } from '@/lib/graphql'
+import { gql } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { formatTime } from '@/lib/labels'
 import { accountDisplayName, projectDisplayName, type Account, type Project } from '@/lib/types'
 import { ClientProjectStatusBadge as ProjectStatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
-import { ArrowRight, Building2, FolderPlus, Loader2, RefreshCw, UserCheck } from 'lucide-react'
+import { ArrowRight, Building2, Loader2, RefreshCw, UserCheck } from 'lucide-react'
 
 /**
- * 客户（企业主本人）工作台：自助创建企业 → 上传面谈录音 → 自动整理企业信息 → 方案推进。
- * 账号由后台统一开通；顾问在顾问工作台自行认领，认领后卡点自动匹配给该顾问。
+ * 客户（企业主本人）工作台（纯展示）：企业由顾问创建、面谈录音由顾问上传，
+ * 客户在这里看方案和推进进度、确认节点验收、在节点里提问、报卡点。
+ * 账号由机构管理开通；分配顾问后卡点自动匹配给该顾问。
  */
 export default function CustomerDashboard() {
   const { auth, refreshAccount } = useAuth()
@@ -24,14 +21,6 @@ export default function CustomerDashboard() {
   const [projects, setProjects] = useState<Project[]>([])
   const [consultant, setConsultant] = useState<Account | null>(null)
   const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [remark, setRemark] = useState('')
-  const [creating, setCreating] = useState(false)
-
-  const quota = auth?.account.project_quota ?? 0
-  const used = projects.length
-  const quotaFull = quota > 0 && used >= quota
 
   const load = async () => {
     setLoading(true)
@@ -46,7 +35,7 @@ export default function CustomerDashboard() {
         { uid: auth!.account.id },
       )
       setProjects(data.project)
-      // 我的顾问（认领我的顾问账号）
+      // 我的顾问（分配给我的顾问账号）
       const cid = auth?.account.consultant_id
       if (cid) {
         const cd = await gql<{ account_by_pk: Account | null }>(
@@ -69,49 +58,6 @@ export default function CustomerDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const onCreate = async (e: FormEvent) => {
-    e.preventDefault()
-    if (quotaFull) {
-      toast.error(`企业名额已用完（${used}/${quota}），如需更多请联系平台管理员`)
-      return
-    }
-    setCreating(true)
-    try {
-      const data = await gql<{ insert_project_one: { id: number } }>(
-        `mutation($obj: project_insert_input!) {
-          insert_project_one(object: $obj) { id }
-        }`,
-        {
-          obj: {
-            name: name.trim(),
-            remark: remark.trim() || null,
-            owner_id: auth!.account.id,
-            status: 'created',
-            review_level: null,
-          },
-        },
-      )
-      const pid = data.insert_project_one.id
-      await logOperation({
-        projectId: pid,
-        operator: auth!.account.username,
-        action: '客户自助创建企业',
-        targetType: 'project',
-        targetId: pid,
-        detail: { name: name.trim(), remark: remark.trim() || null },
-      })
-      toast.success('企业已创建，请上传面谈录音，系统会自动整理企业信息')
-      setDialogOpen(false)
-      setName('')
-      setRemark('')
-      navigate(`/customer/project/${pid}`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '创建失败')
-    } finally {
-      setCreating(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       {/* 我的顾问 */}
@@ -125,44 +71,19 @@ export default function CustomerDashboard() {
           {consultant ? (
             <p className="text-sm text-slate-600">
               {accountDisplayName(consultant)}
-              <span className="ml-2 text-xs text-slate-400">遇到卡点时系统会自动对接给你的顾问</span>
+              <span className="ml-2 text-xs text-slate-400">节点里卡住了可以一键找他，问题会直接到他手上</span>
             </p>
           ) : (
-            <p className="text-sm text-slate-400">顾问正在认领中，认领后在此显示；不影响你正常使用系统。</p>
+            <p className="text-sm text-slate-400">顾问分配中，分配后在此显示；不影响你正常使用系统。</p>
           )}
-        </CardContent>
-      </Card>
-
-      {/* 配额用量 */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">企业名额</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
-            <Progress value={quota > 0 ? Math.min(100, (used / quota) * 100) : 0} className="h-2 flex-1" />
-            <span className="whitespace-nowrap text-sm text-slate-600">
-              已用 {used} / {quota > 0 ? quota : '不限'}
-            </span>
-          </div>
         </CardContent>
       </Card>
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-900">我的企业</h2>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={load} title="刷新">
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
-            className="bg-slate-900 hover:bg-slate-800"
-            disabled={quotaFull}
-            onClick={() => setDialogOpen(true)}
-            title={quotaFull ? '已达名额上限' : undefined}
-          >
-            <FolderPlus className="mr-1.5 h-4 w-4" /> 创建我的企业
-          </Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={load} title="刷新">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       {loading ? (
@@ -175,8 +96,8 @@ export default function CustomerDashboard() {
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <Building2 className="h-10 w-10 text-slate-300" />
-            <p className="text-sm text-slate-500">还没有企业信息，点击「创建我的企业」开始</p>
-            <p className="text-xs text-slate-400">创建后上传面谈录音，系统会自动整理企业信息并生成方案</p>
+            <p className="text-sm text-slate-500">你的顾问会帮你创建企业并上传面谈录音</p>
+            <p className="text-xs text-slate-400">创建后这里会显示你的企业和方案推进情况，有问题随时在节点里提问</p>
           </CardContent>
         </Card>
       ) : (
@@ -201,33 +122,6 @@ export default function CustomerDashboard() {
           ))}
         </div>
       )}
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>创建我的企业</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={onCreate} className="space-y-4">
-            <div className="space-y-2">
-              <Label>企业名称</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="企业 / 公司名称（也可留空，录音整理后自动回填）" />
-            </div>
-            <div className="space-y-2">
-              <Label>备注（选填，仅自己可见）</Label>
-              <Input value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="例如：主营餐饮，30 人团队" />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                取消
-              </Button>
-              <Button type="submit" className="bg-slate-900 hover:bg-slate-800" disabled={creating}>
-                {creating && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                创建
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

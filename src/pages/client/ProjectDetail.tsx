@@ -123,6 +123,8 @@ export default function ProjectDetail() {
   }
 
   const refresh = () => load()
+  // 客户（企业主）纯展示：上传音频、改信息、提交梳理都由顾问操作
+  const isCustomer = auth!.account.account_type === 'customer'
 
   return (
     <div className="space-y-6">
@@ -135,7 +137,7 @@ export default function ProjectDetail() {
         </Button>
         <h1 className="text-xl font-bold text-slate-900">{projectDisplayName(project)}</h1>
         <ProjectStatusBadge status={clientDisplayStatus(project)} />
-        <RemarkEditor project={project} onChanged={refresh} />
+        {!isCustomer && <RemarkEditor project={project} onChanged={refresh} />}
       </div>
 
       <div className="no-print">
@@ -144,6 +146,7 @@ export default function ProjectDetail() {
           records={project.audio_records}
           username={auth!.account.username}
           onChanged={refresh}
+          readOnly={isCustomer}
         />
       </div>
 
@@ -180,17 +183,20 @@ export default function ProjectDetail() {
           project={project}
           username={auth!.account.username}
           onChanged={refresh}
+          readOnly={isCustomer}
         />
       </div>
 
-      <div className="no-print">
-        <ActionsCard
-          project={project}
-          actionLoading={actionLoading}
-          setActionLoading={setActionLoading}
-          onChanged={refresh}
-        />
-      </div>
+      {!isCustomer && (
+        <div className="no-print">
+          <ActionsCard
+            project={project}
+            actionLoading={actionLoading}
+            setActionLoading={setActionLoading}
+            onChanged={refresh}
+          />
+        </div>
+      )}
 
       <AnalysisCard project={project} analyses={project.analyses} latestAnalysis={latestAnalysis} publishedAnalysis={publishedAnalysis} />
 
@@ -277,17 +283,20 @@ function SubmissionsCard({
   project,
   username,
   onChanged,
+  readOnly = false,
 }: {
   submissions: Submission[]
   project: Project
   username: string
   onChanged: () => void
+  /** 客户（企业主）为只读：信息修改由顾问操作 */
+  readOnly?: boolean
 }) {
   const basics = submissions.filter((s) => s.form_type === 'basic')
   const detailed = submissions.filter((s) => s.form_type === 'detailed')
   const latestDetailed = detailed[0] ?? null
-  // 提交梳理前（信息整理阶段）客户可修改最新详细版答案
-  const canEdit = ['created', 'collecting', 'pending_confirm', 'supplementing'].includes(project.status)
+  // 提交梳理前（信息整理阶段）顾问可修改最新详细版答案；客户只读
+  const canEdit = !readOnly && ['created', 'collecting', 'pending_confirm', 'supplementing'].includes(project.status)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
@@ -657,11 +666,14 @@ function AudioCard({
   records,
   username,
   onChanged,
+  readOnly = false,
 }: {
   project: Project
   records: AudioRecord[]
   username: string
   onChanged: () => void
+  /** 客户（企业主）为只读：上传/删除/重试由顾问操作 */
+  readOnly?: boolean
 }) {
   const [uploading, setUploading] = useState(false)
   const [uploadPct, setUploadPct] = useState<number | null>(null)
@@ -801,30 +813,34 @@ function AudioCard({
           与企业线下面谈时录音并上传，系统会自动整理访谈内容、填写企业信息；已交付方案的项目会基于更详细的信息重新梳理并进入审核，旧版本方案保留可回看。
         </p>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept={AUDIO_ACCEPT.map((e) => '.' + e).join(',')}
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) onPick(f)
-          }}
-        />
-        <Button
-          className="bg-slate-900 hover:bg-slate-800"
-          disabled={uploading || busy}
-          onClick={() => fileRef.current?.click()}
-          title={busy ? '有音频正在整理中，完成后再上传' : undefined}
-        >
-          {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mic className="mr-1.5 h-4 w-4" />}
-          {uploading ? '上传中…' : '上传面谈音频'}
-        </Button>
-        {uploading && uploadPct !== null && (
-          <div className="flex items-center gap-3">
-            <Progress value={uploadPct} className="h-2 flex-1" />
-            <span className="w-10 text-right text-xs text-slate-500">{uploadPct}%</span>
-          </div>
+        {!readOnly && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={AUDIO_ACCEPT.map((e) => '.' + e).join(',')}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onPick(f)
+              }}
+            />
+            <Button
+              className="bg-slate-900 hover:bg-slate-800"
+              disabled={uploading || busy}
+              onClick={() => fileRef.current?.click()}
+              title={busy ? '有音频正在整理中，完成后再上传' : undefined}
+            >
+              {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mic className="mr-1.5 h-4 w-4" />}
+              {uploading ? '上传中…' : '上传面谈音频'}
+            </Button>
+            {uploading && uploadPct !== null && (
+              <div className="flex items-center gap-3">
+                <Progress value={uploadPct} className="h-2 flex-1" />
+                <span className="w-10 text-right text-xs text-slate-500">{uploadPct}%</span>
+              </div>
+            )}
+          </>
         )}
         {busy && (() => {
           const cur = records.find((r) => r.status === 'uploaded' || r.status === 'processing')
@@ -853,49 +869,53 @@ function AudioCard({
                     {AUDIO_STATUS_LABEL[r.status] ?? r.status}
                   </span>
                   <span className="text-xs text-slate-400">{formatTime(r.created_at)}</span>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-slate-400 hover:text-red-600"
-                        disabled={deleting === r.id}
-                        title="删除该音频"
-                      >
-                        {deleting === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>删除这条音频？</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          「{r.file_name ?? '音频文件'}」删除后不可恢复，可重新上传正确的录音。
-                          {(r.status === 'uploaded' || r.status === 'processing') && '该音频正在整理中，删除后整理将终止。'}
-                          {r.status === 'done' && '删除仅移除音频记录，已整理到企业信息的内容不会撤回。'}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>取消</AlertDialogCancel>
-                        <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => remove(r)}>
-                          确认删除
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  {!readOnly && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-slate-400 hover:text-red-600"
+                          disabled={deleting === r.id}
+                          title="删除该音频"
+                        >
+                          {deleting === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>删除这条音频？</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            「{r.file_name ?? '音频文件'}」删除后不可恢复，可重新上传正确的录音。
+                            {(r.status === 'uploaded' || r.status === 'processing') && '该音频正在整理中，删除后整理将终止。'}
+                            {r.status === 'done' && '删除仅移除音频记录，已整理到企业信息的内容不会撤回。'}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>取消</AlertDialogCancel>
+                          <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => remove(r)}>
+                            确认删除
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
                 {r.status === 'failed' && (
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <p className="flex-1 text-xs text-red-500">{r.error_message ?? '整理失败'}</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7"
-                      disabled={retrying === r.id}
-                      onClick={() => retry(r)}
-                    >
-                      {retrying === r.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                      重试
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        disabled={retrying === r.id}
+                        onClick={() => retry(r)}
+                      >
+                        {retrying === r.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                        重试
+                      </Button>
+                    )}
                   </div>
                 )}
                 {(r.audio_file?.url || r.audio_url) && (
