@@ -11,7 +11,6 @@ import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import PlanPointsCard from '@/components/PlanPoints'
-import PlanQaCard from '@/components/PlanQa'
 import DeliveryCard from '@/components/Delivery'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -451,8 +450,7 @@ export default function ProjectReplies() {
         analysisId={latestAnalysis && latestAnalysis.status === 'published' ? latestAnalysis.id : null}
       />
 
-      {/* 方案问答：客户提问 → AI 起草 → 老师审核发出 */}
-      <PlanQaCard projectId={project.id} mode="server" username={myName} />
+      {/* 方案问答已并入节点（R4）：节点下一来一回，顾问回复 */}
 
       {/* 交付记录：现场服务留档（服务端只读） */}
       <DeliveryCard projectId={project.id} mode="server" username={myName} />

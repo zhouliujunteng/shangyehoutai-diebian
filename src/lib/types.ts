@@ -192,10 +192,10 @@ export interface Blockage {
   project?: { id: number; name: string } | null
 }
 
-/* ---------- 方案问答（客户提问 → AI 起草 → 老师审核发出） ---------- */
+/* ---------- 节点问答（挂在节点下，一来一回：客户问 → 顾问答） ---------- */
 
-/** submitted=已提交待起草 / drafting=AI起草中 / pending=待老师审核 / published=已发出 / failed=起草失败 */
-export type PlanQaStatus = 'submitted' | 'drafting' | 'pending' | 'published' | 'failed'
+/** submitted=待顾问回复 / published=顾问已回复（drafting/pending/failed 为旧 AI 审核流状态，历史遗留） */
+export type PlanQaStatus = 'submitted' | 'published' | 'drafting' | 'pending' | 'failed'
 
 export interface PlanQa {
   id: number
@@ -207,6 +207,8 @@ export interface PlanQa {
   answered_by?: string | null
   error_message?: string | null
   answered_at?: string | null
+  /** 所属节点（新版问答挂在节点下；旧数据为空） */
+  plan_point_id?: number | null
   project_id: number
   created_at?: string
 }

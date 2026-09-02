@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { gql, logOperation, createActionFlowTask, PLAN_SPLIT_FLOW_ID } from '@/lib/graphql'
 import { formatTime } from '@/lib/labels'
-import type { PlanPoint, PlanPointHistory, PlanPointStatus } from '@/lib/types'
+import type { PlanPoint, PlanPointHistory, PlanPointStatus, PlanQa } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -45,6 +45,7 @@ export default function PlanPointsCard({
 }) {
   const [points, setPoints] = useState<PlanPoint[]>([])
   const [histories, setHistories] = useState<PlanPointHistory[]>([])
+  const [qas, setQas] = useState<PlanQa[]>([])
   const [loading, setLoading] = useState(true)
   const [splitting, setSplitting] = useState(false)
   const [acting, setActing] = useState<number | null>(null)
@@ -55,6 +56,11 @@ export default function PlanPointsCard({
   const [stuckOpen, setStuckOpen] = useState(false)
   const [stuckDesc, setStuckDesc] = useState('')
   const [stuckSending, setStuckSending] = useState(false)
+  // 节点问答：提问输入 / 顾问回复输入
+  const [qaQuestion, setQaQuestion] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [answerFor, setAnswerFor] = useState<number | null>(null)
+  const [answerText, setAnswerText] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async (silent = false) => {
@@ -69,6 +75,16 @@ export default function PlanPointsCard({
         { pid: projectId },
       )
       setPoints(data.plan_point)
+      // 节点问答（客户问 → 顾问答，一来一回）
+      const qd = await gql<{ plan_qa: PlanQa[] }>(
+        `query($pid: bigint!) {
+          plan_qa(where: { project_id: { _eq: $pid } }, order_by: { id: asc }) {
+            id question answer status asked_by answered_by answered_at plan_point_id created_at
+          }
+        }`,
+        { pid: projectId },
+      )
+      setQas(qd.plan_qa)
       // 修改历史仅服务端可读
       if (mode === 'server') {
         const hd = await gql<{ plan_point_history: PlanPointHistory[] }>(
@@ -101,6 +117,74 @@ export default function PlanPointsCard({
 
   /** 当前进行中/待验收的节点（同时只能有一个） */
   const activePoint = points.find((p) => p.status === 'published' || p.status === 'finishing') ?? null
+
+  /** 某节点下的问答 */
+  const qasOf = (pointId: number) => qas.filter((q) => q.plan_point_id === pointId)
+  /** 该节点是否有待回复的提问（一来一回：未回复不能再问） */
+  const hasPendingQa = (pointId: number) => qas.some((q) => q.plan_point_id === pointId && q.status === 'submitted')
+
+  // 有待回复提问时自动刷新（客户等顾问回复）
+  const qaBusy = qas.some((q) => q.status === 'submitted')
+  useEffect(() => {
+    if (!qaBusy || mode !== 'customer') return
+    const t = setTimeout(() => load(true), 6000)
+    return () => clearTimeout(t)
+  }, [qaBusy, qas, load, mode])
+
+  // 客户：在当前节点下提问
+  const ask = async (p: PlanPoint) => {
+    const q = qaQuestion.trim()
+    if (!q) {
+      toast.error('请输入你的问题')
+      return
+    }
+    if (hasPendingQa(p.id)) {
+      toast.error('上一条问题顾问还没回复，回复后才能继续提问')
+      return
+    }
+    setAsking(true)
+    try {
+      const ins = await gql<{ insert_plan_qa_one: { id: number } }>(
+        `mutation($obj: plan_qa_insert_input!) { insert_plan_qa_one(object: $obj) { id } }`,
+        { obj: { project_id: projectId, plan_point_id: p.id, question: q, status: 'submitted', asked_by: username } },
+      )
+      await logOperation({ projectId, operator: username, action: '节点提问', targetType: 'plan_qa', targetId: ins.insert_plan_qa_one.id, detail: { point: p.title, question: q.slice(0, 100) } })
+      setQaQuestion('')
+      toast.success('问题已提交给顾问，回复后会显示在这里')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '提交失败，请重试')
+    } finally {
+      setAsking(false)
+    }
+  }
+
+  // 顾问：回复节点下的提问
+  const answer = async (qa: PlanQa) => {
+    const v = answerText.trim()
+    if (!v) {
+      toast.error('请输入回复内容')
+      return
+    }
+    setActing(qa.id)
+    try {
+      await gql(
+        `mutation($id: bigint!, $a: String!, $by: String!, $at: timestamptz!) {
+          update_plan_qa_by_pk(pk_columns: { id: $id }, _set: { answer: $a, status: "published", answered_by: $by, answered_at: $at }) { id }
+        }`,
+        { id: qa.id, a: v, by: username, at: new Date().toISOString() },
+      )
+      await logOperation({ projectId, operator: username, action: '回复节点提问', targetType: 'plan_qa', targetId: qa.id })
+      toast.success('已回复，客户可见')
+      setAnswerFor(null)
+      setAnswerText('')
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '回复失败')
+    } finally {
+      setActing(null)
+    }
+  }
 
   /** 客户超 7 天未反馈：节点进行中超过 7 天 */
   const isStale = (p: PlanPoint) =>
@@ -364,6 +448,79 @@ export default function PlanPointsCard({
     )
   }
 
+  /* ---------- 节点问答区块（一来一回） ---------- */
+  const qaSection = (p: PlanPoint) => {
+    const list = qasOf(p.id)
+    if (mode === 'customer') {
+      if (p.status !== 'published' && p.status !== 'finishing') return null
+      return (
+        <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+          {list.map((q) => (
+            <div key={q.id} className="space-y-1 rounded-lg bg-white/70 px-3 py-2">
+              <p className="text-xs font-medium text-slate-600">你问：{q.question}</p>
+              {q.status === 'published' && q.answer ? (
+                <p className="whitespace-pre-wrap text-xs leading-5 text-slate-700">顾问回复：{q.answer}</p>
+              ) : (
+                <p className="flex items-center text-xs text-blue-500">
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" /> 顾问回复中…
+                </p>
+              )}
+            </div>
+          ))}
+          {hasPendingQa(p.id) ? (
+            <p className="text-xs text-slate-400">上一条问题顾问还没回复，回复后可以接着问</p>
+          ) : (
+            <div className="space-y-2">
+              <Textarea rows={2} value={qaQuestion} onChange={(e) => setQaQuestion(e.target.value)} placeholder="这个节点有不明白的地方？直接问顾问…" />
+              <Button size="sm" variant="outline" disabled={asking} onClick={() => ask(p)}>
+                {asking ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1 h-3.5 w-3.5" />}
+                问顾问
+              </Button>
+            </div>
+          )}
+        </div>
+      )
+    }
+    // 顾问 / 服务端
+    if (list.length === 0) return null
+    return (
+      <div className="mt-2 space-y-2 rounded-lg bg-slate-50/70 p-3">
+        <p className="text-xs font-medium text-slate-500">节点问答（{list.length}）</p>
+        {list.map((q) => (
+          <div key={q.id} className="space-y-1.5 border-b border-slate-200 pb-2 last:border-0 last:pb-0">
+            <p className="text-xs text-slate-600">
+              <span className="font-medium">{q.asked_by ?? '客户'}问：</span>{q.question}
+              <span className="ml-2 text-slate-400">{formatTime(q.created_at)}</span>
+            </p>
+            {q.status === 'published' && q.answer ? (
+              <p className="whitespace-pre-wrap text-xs leading-5 text-slate-700">
+                <span className="font-medium">{q.answered_by ?? '顾问'}回复：</span>{q.answer}
+              </p>
+            ) : mode === 'consultant' ? (
+              answerFor === q.id ? (
+                <div className="space-y-2 pt-1">
+                  <Textarea rows={3} value={answerText} onChange={(e) => setAnswerText(e.target.value)} placeholder="回复客户的问题…" />
+                  <div className="flex gap-2">
+                    <Button size="sm" className="h-7 bg-slate-900 hover:bg-slate-800" disabled={acting === q.id} onClick={() => answer(q)}>
+                      {acting === q.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1 h-3.5 w-3.5" />} 回复
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => setAnswerFor(null)}>取消</Button>
+                  </div>
+                </div>
+              ) : (
+                <Button size="sm" className="h-7 bg-amber-500 hover:bg-amber-600" onClick={() => { setAnswerFor(q.id); setAnswerText('') }}>
+                  回复（客户等着呢）
+                </Button>
+              )
+            ) : (
+              <p className="text-xs text-amber-600">待顾问回复</p>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   /* ================= 客户视图 ================= */
   if (mode === 'customer') {
     const visible = points.filter((p) => p.status === 'published' || p.status === 'finishing' || p.status === 'done')
@@ -406,6 +563,7 @@ export default function PlanPointsCard({
                     {(isActive || isFinishing) && (
                       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{p.content}</p>
                     )}
+                    {qaSection(p)}
                     {isFinishing && (
                       <div className="mt-3 space-y-2 border-t border-purple-200 pt-3">
                         <p className="text-xs font-medium text-purple-700">顾问已标记这个节点完成，请你验收：</p>
@@ -597,6 +755,9 @@ export default function PlanPointsCard({
                         )}
                       </div>
                     )}
+
+                    {/* 节点问答（一来一回） */}
+                    {qaSection(p)}
 
                     {/* 服务端：修改历史 */}
                     {mode === 'server' && historyOpen === p.id && ph.length > 0 && (

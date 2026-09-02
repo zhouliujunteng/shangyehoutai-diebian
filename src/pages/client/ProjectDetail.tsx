@@ -13,7 +13,6 @@ import CopyTextButton from '@/components/CopyTextButton'
 import AnswersView from '@/components/AnswersView'
 import TranscriptView from '@/components/TranscriptView'
 import PlanPointsCard from '@/components/PlanPoints'
-import PlanQaCard from '@/components/PlanQa'
 import DeliveryCard from '@/components/Delivery'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -158,14 +157,6 @@ export default function ProjectDetail() {
           analysisId={publishedAnalysis?.id ?? null}
           customerId={auth!.account.id}
           consultantId={auth!.account.consultant_id ?? null}
-        />
-      </div>
-
-      <div className="no-print">
-        <PlanQaCard
-          projectId={project.id}
-          mode={auth!.account.account_type === 'customer' ? 'customer' : 'consultant'}
-          username={auth!.account.username}
         />
       </div>
 
