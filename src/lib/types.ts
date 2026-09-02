@@ -211,10 +211,10 @@ export interface PlanQa {
   created_at?: string
 }
 
-/* ---------- 方案小点（拆点 + 任务式推进） ---------- */
+/* ---------- 方案小点（节点式推进 · 验收制） ---------- */
 
-/** draft=AI草稿(老师可见) / confirmed=老师已确认(顾问可发布) / published=已发布到客户 / done=客户已完成并写总结 */
-export type PlanPointStatus = 'draft' | 'confirmed' | 'published' | 'done'
+/** draft=后台草稿(仅服务端) / confirmed=后台已确认(顾问可见可改) / published=进行中(客户可见) / finishing=待客户验收 / done=已验收 */
+export type PlanPointStatus = 'draft' | 'confirmed' | 'published' | 'finishing' | 'done'
 
 export interface PlanPoint {
   id: number
@@ -226,7 +226,23 @@ export interface PlanPoint {
   customer_summary?: string | null
   published_by?: string | null
   published_at?: string | null
+  /** 顾问点「完成节点」的时间（待客户验收） */
+  finish_requested_at?: string | null
   finished_at?: string | null
+  project_id: number
+  created_at?: string
+  project?: { id: number; name: string } | null
+}
+
+/** 节点修改历史（仅服务端可见） */
+export interface PlanPointHistory {
+  id: number
+  plan_point_id: number
+  editor: string | null
+  old_title?: string | null
+  old_content?: string | null
+  new_title?: string | null
+  new_content?: string | null
   project_id: number
   created_at?: string
 }

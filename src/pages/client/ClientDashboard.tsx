@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 import { gql, logOperation } from '@/lib/graphql'
 import { useAuth } from '@/lib/auth'
 import { formatTime, CLIENT_PROJECT_STATUS_LABEL } from '@/lib/labels'
-import { projectDisplayName, accountDisplayName, type Account, type Blockage } from '@/lib/types'
+import { projectDisplayName, accountDisplayName, type Account, type Blockage, type PlanPoint } from '@/lib/types'
 import {
   clientDisplayStatus,
   hasAudioSourced,
@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic, UserCheck, UserX, LifeBuoy } from 'lucide-react'
+import { FolderPlus, Loader2, ArrowRight, Search, LayoutGrid, List, RefreshCw, Mic, UserCheck, UserX, LifeBuoy, AlarmClock } from 'lucide-react'
 
 /** 分组排序：先按状态分类（流程顺序），同状态内按更新时间倒序（先更新的在前面） */
 const STATUS_GROUP_ORDER = [
@@ -68,6 +68,8 @@ export default function ClientDashboard() {
   const [resolving, setResolving] = useState<number | null>(null)
   const [resolveNote, setResolveNote] = useState('')
   const [resolveTarget, setResolveTarget] = useState<Blockage | null>(null)
+  // 超 7 天未反馈的进行中节点（客户没动静，要单独标记）
+  const [stalePoints, setStalePoints] = useState<PlanPoint[]>([])
 
   const quota = auth?.account.project_quota ?? 0
   // 配额只算顾问自己创建的项目，认领客户名下的项目不占顾问名额
@@ -152,6 +154,22 @@ export default function ClientDashboard() {
         { cid: Number(auth!.account.id) },
       )
       setBlockages(bd.blockage)
+      // 超 7 天未反馈的进行中节点
+      const pids = data.project.map((p) => p.id)
+      if (pids.length > 0) {
+        const before = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+        const sd = await gql<{ plan_point: PlanPoint[] }>(
+          `query($pids: [bigint!]!, $before: timestamptz!) {
+            plan_point(where: { project_id: { _in: $pids }, status: { _eq: "published" }, published_at: { _lt: $before } }, order_by: { published_at: asc }) {
+              id seq title published_at project { id name }
+            }
+          }`,
+          { pids, before },
+        )
+        setStalePoints(sd.plan_point)
+      } else {
+        setStalePoints([])
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -344,6 +362,33 @@ export default function ClientDashboard() {
           </Card>
         )
       })()}
+
+      {/* 超 7 天未反馈的进行中节点预警 */}
+      {stalePoints.length > 0 && (
+        <Card className="border-red-200 bg-red-50/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base text-red-700">
+              <AlarmClock className="h-4 w-4" /> 超 7 天未反馈（{stalePoints.length}）
+              <span className="text-xs font-normal text-red-400">节点已发给客户但一直没动静，主动跟进一下</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {stalePoints.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800">第 {p.seq} 项 · {p.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {p.project?.name ?? ''} · 发布于 {formatTime(p.published_at)}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="h-7" onClick={() => p.project && openProject(p.project.id)}>
+                  看项目
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 卡点待办：认领客户报的卡点自动匹配到这里 */}
       {blockages.length > 0 && (
