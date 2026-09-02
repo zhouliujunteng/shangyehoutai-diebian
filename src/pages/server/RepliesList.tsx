@@ -22,10 +22,18 @@ interface CommRow {
   project?: { id: number; name: string } | null
 }
 
+interface QaRow {
+  id: number
+  status: string
+  created_at?: string
+  project?: { id: number; name: string } | null
+}
+
 interface ProjectGroup {
   project_id: number
   name: string
   feedbackCount: number
+  qaCount: number
   needMeCount: number
   latestTime?: string
   latestReplyStatus?: string | null
@@ -51,10 +59,14 @@ export default function RepliesList() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await gql<{ comm_feedback: CommRow[] }>(
+      const data = await gql<{ comm_feedback: CommRow[]; plan_qa: QaRow[] }>(
         `query {
           comm_feedback(order_by: { id: desc }) {
             id status reply_status created_at
+            project { id name }
+          }
+          plan_qa(order_by: { id: desc }) {
+            id status created_at
             project { id name }
           }
         }`,
@@ -68,24 +80,37 @@ export default function RepliesList() {
       const bumpTime = (g: ProjectGroup, ts?: string) => {
         if (ts && new Date(ts).getTime() > new Date(g.latestTime ?? 0).getTime()) g.latestTime = ts
       }
-      for (const f of data.comm_feedback) {
-        const pid = f.project?.id
-        if (!pid) continue
+      const ensure = (pid: number, name?: string | null, ts?: string): ProjectGroup => {
         if (!map.has(pid)) {
           map.set(pid, {
             project_id: pid,
-            name: f.project?.name ?? `项目 #${pid}`,
+            name: name ?? `项目 #${pid}`,
             feedbackCount: 0,
+            qaCount: 0,
             needMeCount: 0,
-            latestTime: f.created_at,
+            latestTime: ts,
             latestReplyStatus: null,
           })
         }
-        const g = map.get(pid)!
+        return map.get(pid)!
+      }
+      for (const f of data.comm_feedback) {
+        const pid = f.project?.id
+        if (!pid) continue
+        const g = ensure(pid, f.project?.name, f.created_at)
         g.feedbackCount += 1
         if (needMe(f)) g.needMeCount += 1
         if (f.reply_status && !g.latestReplyStatus) g.latestReplyStatus = f.reply_status
         bumpTime(g, f.created_at)
+      }
+      // 方案问答：待审核（pending）计入待我处理，确保只有问答没有反馈的项目也能进列表
+      for (const q of data.plan_qa) {
+        const pid = q.project?.id
+        if (!pid) continue
+        const g = ensure(pid, q.project?.name, q.created_at)
+        g.qaCount += 1
+        if (q.status === 'pending') g.needMeCount += 1
+        bumpTime(g, q.created_at)
       }
       setGroups([...map.values()])
     } catch (e) {
@@ -109,7 +134,7 @@ export default function RepliesList() {
           <div className="min-w-0">
             <p className="truncate font-medium text-slate-800">{g.name}</p>
             <p className="mt-0.5 text-xs text-slate-400">
-              {g.feedbackCount} 条反馈 · {formatTime(g.latestTime)}
+              {g.feedbackCount} 条反馈{g.qaCount > 0 ? ` · ${g.qaCount} 条问答` : ''} · {formatTime(g.latestTime)}
             </p>
           </div>
           {g.latestReplyStatus ? (
@@ -164,7 +189,7 @@ export default function RepliesList() {
         </Card>
       ) : visibleGroups.length === 0 ? (
         <Card>
-          <CardContent className="py-16 text-center text-sm text-slate-400">暂无方案反馈</CardContent>
+          <CardContent className="py-16 text-center text-sm text-slate-400">暂无反馈或问答</CardContent>
         </Card>
       ) : (
         <>
@@ -192,7 +217,7 @@ export default function RepliesList() {
                         {g.name}
                         {isUnseen(g.latestTime, g.project_id, viewedScope) && <UpdateDot inline />}
                       </TableCell>
-                      <TableCell>{g.feedbackCount}</TableCell>
+                      <TableCell>{g.feedbackCount}{g.qaCount > 0 ? ` + ${g.qaCount} 问答` : ''}</TableCell>
                       <TableCell>
                         {g.needMeCount > 0 ? (
                           <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
