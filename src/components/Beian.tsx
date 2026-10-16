@@ -9,7 +9,7 @@
 export default function Beian() {
   return (
     <div className="no-print py-6 text-center text-xs text-slate-400">
-      <span>深圳市原点秩序科技有限公司版权所有</span>
+      <span>无书醒狮文化传媒有限责任公司版权所有</span>
       <span className="mx-2 text-slate-300">|</span>
       <a
         href="https://beian.miit.gov.cn/"
